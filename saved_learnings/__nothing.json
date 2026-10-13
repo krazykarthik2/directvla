@@ -1,0 +1,62 @@
+{
+  "name": "__nothing.json",
+  "timestamp": 1790400359.0298965,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 220.4,
+      "y": 27.95,
+      "z": 112.46,
+      "r": 7.23,
+      "j1": 7.23,
+      "j2": 7.25,
+      "j3": 8.39,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 203.23,
+      "y": -5.73,
+      "z": 62.41,
+      "r": -1.61,
+      "j1": -1.61,
+      "j2": 6.5,
+      "j3": 29.2,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 185.44,
+      "y": -60.54,
+      "z": 49.23,
+      "r": -18.08,
+      "j1": -18.08,
+      "j2": 6.54,
+      "j3": 35.28,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 192.92,
+      "y": -29.28,
+      "z": 49.24,
+      "r": -8.63,
+      "j1": -8.63,
+      "j2": 6.55,
+      "j3": 35.27,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    }
+  ]
+}

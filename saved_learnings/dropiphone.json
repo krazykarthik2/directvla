@@ -1,0 +1,48 @@
+{
+  "name": "dropiphone.json",
+  "timestamp": 1791457556.8185797,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 179.72,
+      "y": -22.54,
+      "z": -56.25,
+      "r": -7.15,
+      "j1": -7.15,
+      "j2": 48.56,
+      "j3": 82.09,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 179.72,
+      "y": -22.54,
+      "z": -56.25,
+      "r": -7.15,
+      "j1": -7.15,
+      "j2": 48.56,
+      "j3": 82.09,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 179.72,
+      "y": -22.54,
+      "z": -56.25,
+      "r": -7.15,
+      "j1": -7.15,
+      "j2": 48.56,
+      "j3": 82.09,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "off",
+      "pause": 1.0
+    }
+  ]
+}

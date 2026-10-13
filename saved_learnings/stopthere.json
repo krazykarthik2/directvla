@@ -1,0 +1,20 @@
+{
+  "name": "stopthere.json",
+  "timestamp": 1790399370.112015,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 220.82,
+      "y": 155.81,
+      "z": -4.23,
+      "r": 35.21,
+      "j1": 35.21,
+      "j2": 47.24,
+      "j3": 40.71,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    }
+  ]
+}

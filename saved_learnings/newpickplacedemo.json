@@ -1,0 +1,90 @@
+{
+  "name": "newpickplacedemo.json",
+  "timestamp": 1791462251.6036131,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 188.71,
+      "y": -43.19,
+      "z": 55.67,
+      "r": -12.89,
+      "j1": -12.89,
+      "j2": 4.21,
+      "j3": 32.49,
+      "j4": -0.0,
+      "tool_type": "suction_cup",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 144.63,
+      "y": -29.46,
+      "z": -6.42,
+      "r": -11.52,
+      "j1": -11.51,
+      "j2": 14.79,
+      "j3": 68.68,
+      "j4": -0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 187.94,
+      "y": -40.83,
+      "z": 160.25,
+      "r": -12.26,
+      "j1": -12.26,
+      "j2": -5.14,
+      "j3": -10.11,
+      "j4": -0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 143.45,
+      "y": 237.53,
+      "z": 33.89,
+      "r": 58.87,
+      "j1": 58.87,
+      "j2": 40.57,
+      "j3": 27.84,
+      "j4": -0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 143.45,
+      "y": 237.53,
+      "z": 33.89,
+      "r": 58.87,
+      "j1": 58.87,
+      "j2": 40.57,
+      "j3": 27.84,
+      "j4": -0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 143.45,
+      "y": 237.53,
+      "z": 33.89,
+      "r": 58.87,
+      "j1": 58.87,
+      "j2": 40.57,
+      "j3": 27.84,
+      "j4": -0.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    }
+  ]
+}

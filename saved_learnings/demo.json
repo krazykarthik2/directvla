@@ -1,0 +1,90 @@
+{
+  "name": "demo.json",
+  "timestamp": 1790401740.4861794,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 232.98,
+      "y": -30.75,
+      "z": 18.09,
+      "r": 37.48,
+      "j1": -7.52,
+      "j2": 29.67,
+      "j3": 42.45,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 261.97,
+      "y": 14.9,
+      "z": 52.47,
+      "r": 48.26,
+      "j1": 3.26,
+      "j2": 31.18,
+      "j3": 25.39,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "stop",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 261.97,
+      "y": 14.9,
+      "z": 52.47,
+      "r": 48.26,
+      "j1": 3.26,
+      "j2": 31.18,
+      "j3": 25.39,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 257.17,
+      "y": -37.21,
+      "z": -18.64,
+      "r": 36.77,
+      "j1": -8.23,
+      "j2": 48.33,
+      "j3": 47.51,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 257.17,
+      "y": -37.21,
+      "z": -18.64,
+      "r": 36.77,
+      "j1": -8.23,
+      "j2": 48.33,
+      "j3": 47.51,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "off",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 280.57,
+      "y": -5.06,
+      "z": 4.83,
+      "r": 43.97,
+      "j1": -1.03,
+      "j2": 48.36,
+      "j3": 35.26,
+      "j4": 45.0,
+      "tool_type": "gripper",
+      "tool_action": "off",
+      "pause": 1.0
+    }
+  ]
+}

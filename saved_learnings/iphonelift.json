@@ -1,0 +1,48 @@
+{
+  "name": "iphonelift.json",
+  "timestamp": 1791457515.0285397,
+  "waypoints": [
+    {
+      "type": "coord",
+      "x": 183.37,
+      "y": -6.7,
+      "z": -64.59,
+      "r": -2.09,
+      "j1": -2.09,
+      "j2": 52.86,
+      "j3": 83.68,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 183.37,
+      "y": -6.7,
+      "z": -64.59,
+      "r": -2.09,
+      "j1": -2.09,
+      "j2": 52.86,
+      "j3": 83.68,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    },
+    {
+      "type": "coord",
+      "x": 179.72,
+      "y": -22.54,
+      "z": -56.25,
+      "r": -7.15,
+      "j1": -7.15,
+      "j2": 48.56,
+      "j3": 82.09,
+      "j4": 0.0,
+      "tool_type": "gripper",
+      "tool_action": "on",
+      "pause": 1.0
+    }
+  ]
+}

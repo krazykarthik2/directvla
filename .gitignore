@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch checkpoints and training outputs (large files)
+checkpoints/
+*.pth
+*.pt
+*.bin
+*.tar.gz
+
+# Data directories and shards
+data/
+data/shards/
+data/raw_demos/
+*.npz
+
+# Logs
+log/
+*.log
+
+# ROS2 build artifacts (if built locally)
+build/
+install/
+log/
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+.phase1_done
