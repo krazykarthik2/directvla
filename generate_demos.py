@@ -190,25 +190,23 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         target_plat_pos = get_non_overlapping_pos(min_dist=0.075)
         target_plat_pos[2] = 0.005
 
-        # Distractor objects
+        # Distractor variation: 25% clean (0 distractors), 30% 1 distractor, 45% 2 distractors
+        num_dist_cubes = np.random.choice([0, 1, 2], p=[0.25, 0.30, 0.45])
         avail_cubes = [c for c in cube_colors if c != t_col]
-        distractor_cubes = []
-        for c in avail_cubes[:2]:
-            distractor_cubes.append((c, get_non_overlapping_pos()))
+        np.random.shuffle(avail_cubes)
+        distractor_cubes = [(avail_cubes[i], get_non_overlapping_pos()) for i in range(num_dist_cubes)]
 
-        avail_plats = [c for c in plat_colors if c != p_col]
         distractor_plats = []
-        if avail_plats:
-            dp = get_non_overlapping_pos(min_dist=0.075)
-            dp[2] = 0.005
-            distractor_plats.append((avail_plats[0], dp))
+        if np.random.rand() < 0.6:
+            avail_plats = [c for c in plat_colors if c != p_col]
+            if avail_plats:
+                dp = get_non_overlapping_pos(min_dist=0.075)
+                dp[2] = 0.005
+                distractor_plats.append((avail_plats[0], dp))
 
-        template = np.random.choice(prompt_templates)
-        prompt_text = template.format(target=t_col, plat=p_col)
+        # Task type distribution: 60% Pick-and-Place, 20% Push, 10% Reach, 10% Lift
+        task_type = np.random.choice(["pick_place", "push", "reach", "lift"], p=[0.60, 0.20, 0.10, 0.10])
 
-        # 2. Plan 8-phase minimum-jerk trajectory obeying Dobot limits
-        # Objects sit on top of the desk (small cube ~20mm, resting on floor at Z=0.0)
-        # Gripper descends down around the cube for grasp
         hz = 0.045
         cube_surf_z = -0.012
         plat_surf_z = -0.005
@@ -216,30 +214,74 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         p_start = np.array([0.22, 0.0, hz], dtype=np.float32)
         p_hover_cube = np.array([target_cube_pos[0], target_cube_pos[1], hz], dtype=np.float32)
         p_cube_surf = np.array([target_cube_pos[0], target_cube_pos[1], cube_surf_z], dtype=np.float32)
-        p_hover_plat = np.array([target_plat_pos[0], target_plat_pos[1], hover_z := hz], dtype=np.float32)
+        p_hover_plat = np.array([target_plat_pos[0], target_plat_pos[1], hz], dtype=np.float32)
         p_plat_surf = np.array([target_plat_pos[0], target_plat_pos[1], plat_surf_z], dtype=np.float32)
         p_retract = np.array([target_plat_pos[0], target_plat_pos[1], hz], dtype=np.float32)
 
-        # Jitter step allocation for natural variations
-        j1 = np.random.randint(14, 18)
-        j2 = np.random.randint(10, 14)
-        j3 = np.random.randint(5, 8)
-        j4 = np.random.randint(10, 14)
-        j5 = np.random.randint(16, 22)
-        j6 = np.random.randint(10, 14)
-        j7 = np.random.randint(5, 8)
-        j8 = np.random.randint(12, 16)
+        R = np.random.randint
 
-        stages = [
-            (p_start, p_hover_cube, 0.0, j1),       # 1. Approach hover
-            (p_hover_cube, p_cube_surf, 0.0, j2),   # 2. Descend to cube top
-            (p_cube_surf, p_cube_surf, 1.0, j3),    # 3. Grasp
-            (p_cube_surf, p_hover_cube, 1.0, j4),   # 4. Lift
-            (p_hover_cube, p_hover_plat, 1.0, j5),  # 5. Transfer
-            (p_hover_plat, p_plat_surf, 1.0, j6),   # 6. Lower to platform
-            (p_plat_surf, p_plat_surf, 0.0, j7),    # 7. Release
-            (p_plat_surf, p_retract, 0.0, j8),      # 8. Retract to hover
-        ]
+        if task_type == "pick_place":
+            prompt_text = np.random.choice(prompt_templates).format(target=t_col, plat=p_col)
+            stages = [
+                (p_start, p_hover_cube, 0.0, R(14, 18)),       # 1. Approach hover
+                (p_hover_cube, p_cube_surf, 0.0, R(10, 14)),   # 2. Descend to cube top
+                (p_cube_surf, p_cube_surf, 1.0, R(5, 8)),      # 3. Grasp
+                (p_cube_surf, p_hover_cube, 1.0, R(10, 14)),   # 4. Lift
+                (p_hover_cube, p_hover_plat, 1.0, R(16, 22)),  # 5. Transfer
+                (p_hover_plat, p_plat_surf, 1.0, R(10, 14)),   # 6. Lower to platform
+                (p_plat_surf, p_plat_surf, 0.0, R(5, 8)),      # 7. Release
+                (p_plat_surf, p_retract, 0.0, R(12, 16)),      # 8. Retract to hover
+            ]
+        elif task_type == "push":
+            push_templates = [
+                "push the {t} cube towards the {p} platform",
+                "nudge {t} block forward to {p} target",
+                "slide the {t} cube across the desk",
+            ]
+            prompt_text = np.random.choice(push_templates).format(t=t_col, p=p_col)
+            push_dir = (target_plat_pos[:2] - target_cube_pos[:2])
+            norm = np.linalg.norm(push_dir)
+            push_dir = push_dir / norm if norm > 1e-4 else np.array([1.0, 0.0])
+            push_dist = np.random.uniform(0.040, 0.065)
+            p_push_approach = np.array([target_cube_pos[0] - push_dir[0] * 0.035, target_cube_pos[1] - push_dir[1] * 0.035, hz], dtype=np.float32)
+            p_push_start = np.array([target_cube_pos[0] - push_dir[0] * 0.035, target_cube_pos[1] - push_dir[1] * 0.035, -0.010], dtype=np.float32)
+            push_end_xy = target_cube_pos[:2] + push_dir * push_dist
+            p_push_end = np.array([push_end_xy[0], push_end_xy[1], -0.010], dtype=np.float32)
+            p_push_retract = np.array([push_end_xy[0], push_end_xy[1], hz], dtype=np.float32)
+            stages = [
+                (p_start, p_push_approach, 0.0, R(14, 18)),
+                (p_push_approach, p_push_start, 0.0, R(10, 14)),
+                (p_push_start, p_push_end, 0.0, R(24, 30)),
+                (p_push_end, p_push_retract, 0.0, R(12, 16)),
+                (p_push_retract, p_start, 0.0, R(12, 16)),
+            ]
+        elif task_type == "reach":
+            reach_templates = [
+                "reach towards the {t} cube",
+                "move gripper above the {t} cube",
+                "hover over the {t} object",
+            ]
+            prompt_text = np.random.choice(reach_templates).format(t=t_col)
+            p_reach_hover = np.array([target_cube_pos[0], target_cube_pos[1], hz + 0.010], dtype=np.float32)
+            stages = [
+                (p_start, p_reach_hover, 0.0, R(20, 26)),
+                (p_reach_hover, p_reach_hover, 0.0, R(15, 20)),
+                (p_reach_hover, p_start, 0.0, R(20, 26)),
+            ]
+        else: # "lift"
+            lift_templates = [
+                "pick up the {t} cube and hold it",
+                "lift the {t} block into the air",
+                "elevate the {t} object above the desk",
+            ]
+            prompt_text = np.random.choice(lift_templates).format(t=t_col)
+            stages = [
+                (p_start, p_hover_cube, 0.0, R(14, 18)),
+                (p_hover_cube, p_cube_surf, 0.0, R(10, 14)),
+                (p_cube_surf, p_cube_surf, 1.0, R(6, 10)),
+                (p_cube_surf, p_hover_cube, 1.0, R(14, 18)),
+                (p_hover_cube, p_hover_cube, 1.0, R(16, 22)),
+            ]
 
         full_pts = []
         for p_s, p_e, grip, n_steps in stages:
@@ -251,12 +293,15 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         indices = np.linspace(0, len(full_pts) - 1, 128).astype(int)
         full_pts = [full_pts[k] for k in indices]
 
-        # 3. Verify task success
-        final_cube_target_dist = np.linalg.norm(target_cube_pos[:2] - target_plat_pos[:2])
-        # Trajectory actually released over platform:
-        rel_pt = full_pts[110][0]
-        dist_to_plat = np.linalg.norm(rel_pt[:2] - target_plat_pos[:2])
-        if dist_to_plat > 0.035:
+        # 3. Verify kinematics feasibility
+        kin_valid = True
+        for pt, _ in full_pts:
+            j = kin.inverse(pt[0], pt[1], pt[2], 0.0)
+            deg = np.degrees(j)
+            if not (-125 <= deg[0] <= 125 and -5 <= deg[1] <= 85 and -15 <= deg[2] <= 70 and -150 <= deg[3] <= 150):
+                kin_valid = False
+                break
+        if not kin_valid:
             rejected += 1
             continue
 

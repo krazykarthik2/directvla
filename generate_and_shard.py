@@ -159,37 +159,100 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         cube_pos = rand_pos()
         plat_pos = rand_pos(0.075); plat_pos[2] = 0.005
 
-        dist_cubes = [(c, rand_pos()) for c in [c for c in cube_colors if c != t_col][:2]]
+        # Scene distractor variation:
+        # 25% clean (0 distractors), 30% 1 distractor, 45% 2 distractors
+        num_dist_cubes = np.random.choice([0, 1, 2], p=[0.25, 0.30, 0.45])
+        avail_cubes = [c for c in cube_colors if c != t_col]
+        np.random.shuffle(avail_cubes)
+        dist_cubes = [(avail_cubes[i], rand_pos()) for i in range(num_dist_cubes)]
+
         dist_plats = []
-        avail_p = [c for c in plat_colors if c != p_col]
-        if avail_p:
-            dp = rand_pos(0.075); dp[2] = 0.005
-            dist_plats.append((avail_p[0], dp))
+        if np.random.rand() < 0.6:  # 60% chance of a distractor platform
+            avail_p = [c for c in plat_colors if c != p_col]
+            if avail_p:
+                dp = rand_pos(0.075); dp[2] = 0.005
+                dist_plats.append((avail_p[0], dp))
 
-        prompt = np.random.choice(templates).format(t=t_col, p=p_col)
+        # Task type distribution:
+        # 60% Pick-and-Place, 20% Push/Nudge, 10% Reach/Hover, 10% Lift-and-Hold
+        task_type = np.random.choice(["pick_place", "push", "reach", "lift"], p=[0.60, 0.20, 0.10, 0.10])
 
-        # --- plan 8-phase trajectory strictly obeying Dobot limits ---
-        # Objects sit on top of the desk (small cube ~20mm, resting on floor at Z=0.0)
-        # Gripper descends down around the cube for grasp
         hz = 0.045; csz = -0.012; psz = -0.005
         ps = np.array([0.22, 0.0, hz], dtype=np.float32)
-        hc = np.array([cube_pos[0], cube_pos[1], hz])
-        cs = np.array([cube_pos[0], cube_pos[1], csz])
-        hp = np.array([plat_pos[0], plat_pos[1], hz])
-        pps = np.array([plat_pos[0], plat_pos[1], psz])
-        ret = np.array([plat_pos[0], plat_pos[1], hz])
+        hc = np.array([cube_pos[0], cube_pos[1], hz], dtype=np.float32)
+        cs = np.array([cube_pos[0], cube_pos[1], csz], dtype=np.float32)
+        hp = np.array([plat_pos[0], plat_pos[1], hz], dtype=np.float32)
+        pps = np.array([plat_pos[0], plat_pos[1], psz], dtype=np.float32)
+        ret = np.array([plat_pos[0], plat_pos[1], hz], dtype=np.float32)
 
         R = np.random.randint
-        stages = [
-            (ps, hc, 0.0, R(14, 18)),   # approach hover
-            (hc, cs, 0.0, R(10, 14)),   # descend to cube top
-            (cs, cs, 1.0, R(5, 8)),     # grasp
-            (cs, hc, 1.0, R(10, 14)),   # lift
-            (hc, hp, 1.0, R(16, 22)),   # carry
-            (hp, pps, 1.0, R(10, 14)),  # lower to platform
-            (pps, pps, 0.0, R(5, 8)),   # release
-            (pps, ret, 0.0, R(12, 16)), # retract to hover
-        ]
+
+        if task_type == "pick_place":
+            prompt = np.random.choice(templates).format(t=t_col, p=p_col)
+            stages = [
+                (ps, hc, 0.0, R(14, 18)),   # approach hover
+                (hc, cs, 0.0, R(10, 14)),   # descend to cube
+                (cs, cs, 1.0, R(5, 8)),     # grasp
+                (cs, hc, 1.0, R(10, 14)),   # lift
+                (hc, hp, 1.0, R(16, 22)),   # carry to platform
+                (hp, pps, 1.0, R(10, 14)),  # lower to platform
+                (pps, pps, 0.0, R(5, 8)),   # release
+                (pps, ret, 0.0, R(12, 16)), # retract to hover
+            ]
+        elif task_type == "push":
+            push_templates = [
+                "push the {t} cube towards the {p} platform",
+                "nudge {t} block forward to {p} target",
+                "slide the {t} cube across the desk",
+            ]
+            prompt = np.random.choice(push_templates).format(t=t_col, p=p_col)
+            # Push vector along direction from cube towards platform
+            push_dir = (plat_pos[:2] - cube_pos[:2])
+            norm = np.linalg.norm(push_dir)
+            if norm > 1e-4:
+                push_dir = push_dir / norm
+            else:
+                push_dir = np.array([1.0, 0.0])
+            push_dist = np.random.uniform(0.040, 0.065)
+            p_push_approach = np.array([cube_pos[0] - push_dir[0] * 0.035, cube_pos[1] - push_dir[1] * 0.035, hz], dtype=np.float32)
+            p_push_start = np.array([cube_pos[0] - push_dir[0] * 0.035, cube_pos[1] - push_dir[1] * 0.035, -0.010], dtype=np.float32)
+            push_end_xy = cube_pos[:2] + push_dir * push_dist
+            p_push_end = np.array([push_end_xy[0], push_end_xy[1], -0.010], dtype=np.float32)
+            p_push_retract = np.array([push_end_xy[0], push_end_xy[1], hz], dtype=np.float32)
+            stages = [
+                (ps, p_push_approach, 0.0, R(14, 18)), # hover behind cube
+                (p_push_approach, p_push_start, 0.0, R(10, 14)), # descend behind cube
+                (p_push_start, p_push_end, 0.0, R(24, 30)), # push cube along desk
+                (p_push_end, p_push_retract, 0.0, R(12, 16)), # lift up
+                (p_push_retract, ps, 0.0, R(12, 16)), # return home
+            ]
+        elif task_type == "reach":
+            reach_templates = [
+                "reach towards the {t} cube",
+                "move gripper above the {t} cube",
+                "hover over the {t} object",
+            ]
+            prompt = np.random.choice(reach_templates).format(t=t_col)
+            p_reach_hover = np.array([cube_pos[0], cube_pos[1], hz + 0.010], dtype=np.float32)
+            stages = [
+                (ps, p_reach_hover, 0.0, R(20, 26)),
+                (p_reach_hover, p_reach_hover, 0.0, R(15, 20)),
+                (p_reach_hover, ps, 0.0, R(20, 26)),
+            ]
+        else: # "lift"
+            lift_templates = [
+                "pick up the {t} cube and hold it",
+                "lift the {t} block into the air",
+                "elevate the {t} object above the desk",
+            ]
+            prompt = np.random.choice(lift_templates).format(t=t_col)
+            stages = [
+                (ps, hc, 0.0, R(14, 18)),
+                (hc, cs, 0.0, R(10, 14)),
+                (cs, cs, 1.0, R(6, 10)),
+                (cs, hc, 1.0, R(14, 18)),
+                (hc, hc, 1.0, R(16, 22)), # hold stationary in air
+            ]
 
         raw_pts = []
         for p_s, p_e, g, n in stages:
@@ -200,8 +263,15 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         idx = np.linspace(0, len(raw_pts) - 1, 128).astype(int)
         traj = [raw_pts[k] for k in idx]
 
-        # verify: release point over platform
-        if np.linalg.norm(traj[110][0][:2] - plat_pos[:2]) > 0.035:
+        # Verify kinematic feasibility of all 128 steps
+        kin_valid = True
+        for pt, _ in traj:
+            j = kin.inverse(pt[0], pt[1], pt[2], 0.0)
+            deg = np.degrees(j)
+            if not (-125 <= deg[0] <= 125 and -5 <= deg[1] <= 85 and -15 <= deg[2] <= 70 and -150 <= deg[3] <= 150):
+                kin_valid = False
+                break
+        if not kin_valid:
             rejected += 1
             continue
 
@@ -213,10 +283,6 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
                 grasp_start = si
             if grasp_start is not None and g < 0.5 and release_step is None:
                 release_step = si
-        if grasp_start is None:
-            grasp_start = 30
-        if release_step is None:
-            release_step = 110
 
         # --- render camera at EVERY step with correct cube physics ---
         image_seq = np.zeros((128, 224, 224, 3), dtype=np.uint8)
@@ -224,16 +290,34 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         action_seq = np.zeros((128, 9), dtype=np.float32)
         joints_seq = np.zeros((128, 4), dtype=np.float32)
 
+        p_push_start_pt = p_push_start if task_type == "push" else None
+        p_push_end_pt = p_push_end if task_type == "push" else None
+
         for si, (pt, g) in enumerate(traj):
-            # cube position: on desk -> follows EE -> on platform
-            if si < grasp_start:
+            # Cube position logic depending on task type:
+            if task_type == "pick_place":
+                if grasp_start is None or si < grasp_start:
+                    vis_cube = cube_pos.copy()
+                elif release_step is None or si < release_step:
+                    vis_cube = pt.copy()
+                    vis_cube[2] = max(pt[2] - 0.005, 0.010)
+                else:
+                    vis_cube = pps.copy()
+                    vis_cube[2] = plat_pos[2] + 0.008
+            elif task_type == "push":
+                # Cube slides when gripper contacts it at z < 0
+                if pt[2] < 0.0 and np.linalg.norm(pt[:2] - cube_pos[:2]) < 0.055:
+                    vis_cube = np.array([pt[0] + push_dir[0] * 0.015, pt[1] + push_dir[1] * 0.015, 0.012], dtype=np.float32)
+                else:
+                    vis_cube = cube_pos.copy()
+            elif task_type == "lift":
+                if grasp_start is None or si < grasp_start:
+                    vis_cube = cube_pos.copy()
+                else:
+                    vis_cube = pt.copy()
+                    vis_cube[2] = max(pt[2] - 0.005, 0.010)
+            else: # reach
                 vis_cube = cube_pos.copy()
-            elif si < release_step:
-                vis_cube = pt.copy()            # follows gripper
-                vis_cube[2] = max(pt[2] - 0.005, 0.010)
-            else:
-                vis_cube = pps.copy()            # resting on platform
-                vis_cube[2] = plat_pos[2] + 0.008
 
             image_seq[si] = renderer.render_scene(
                 target_cube_pos=vis_cube,
@@ -254,7 +338,7 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
 
         mgr.add_demonstration(
             image_seq, proprio_seq, action_seq, prompt,
-            metadata={"target": t_col, "platform": p_col, "joints": joints_seq.tolist()},
+            metadata={"target": t_col, "platform": p_col, "task": task_type, "joints": joints_seq.tolist()},
         )
         completed += 1
         pbar.update(1)
