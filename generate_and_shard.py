@@ -146,31 +146,33 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
 
         def rand_pos(min_dist=0.065):
             for _ in range(100):
-                a = np.random.uniform(-0.70, 0.70)
-                d = np.random.uniform(0.18, 0.28)
+                a = np.random.uniform(-0.55, 0.55)
+                d = np.random.uniform(0.19, 0.27)
                 p = np.array([d * np.cos(a), d * np.sin(a), 0.012], dtype=np.float32)
                 if all(np.linalg.norm(p[:2] - o[:2]) > min_dist for o in occupied):
                     occupied.append(p)
                     return p
-            p = np.array([0.22, 0.10, 0.012], dtype=np.float32)
+            p = np.array([0.22, 0.08, 0.012], dtype=np.float32)
             occupied.append(p)
             return p
 
         cube_pos = rand_pos()
-        plat_pos = rand_pos(0.08); plat_pos[2] = 0.005
+        plat_pos = rand_pos(0.075); plat_pos[2] = 0.005
 
         dist_cubes = [(c, rand_pos()) for c in [c for c in cube_colors if c != t_col][:2]]
         dist_plats = []
         avail_p = [c for c in plat_colors if c != p_col]
         if avail_p:
-            dp = rand_pos(0.08); dp[2] = 0.005
+            dp = rand_pos(0.075); dp[2] = 0.005
             dist_plats.append((avail_p[0], dp))
 
         prompt = np.random.choice(templates).format(t=t_col, p=p_col)
 
-        # --- plan 8-phase trajectory ---
-        hz = 0.110; csz = 0.024; psz = 0.032
-        ps = np.array([0.20, 0.0, hz], dtype=np.float32)
+        # --- plan 8-phase trajectory strictly obeying Dobot limits ---
+        # Objects sit on top of the desk (small cube ~20mm, top at ~0.015m)
+        # End-effector does not descend all the way to ground/desk, but grasps at top of cube
+        hz = 0.065; csz = 0.015; psz = 0.022
+        ps = np.array([0.22, 0.0, hz], dtype=np.float32)
         hc = np.array([cube_pos[0], cube_pos[1], hz])
         cs = np.array([cube_pos[0], cube_pos[1], csz])
         hp = np.array([plat_pos[0], plat_pos[1], hz])
@@ -180,13 +182,13 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         R = np.random.randint
         stages = [
             (ps, hc, 0.0, R(14, 18)),   # approach hover
-            (hc, cs, 0.0, R(10, 14)),   # descend
+            (hc, cs, 0.0, R(10, 14)),   # descend to cube top
             (cs, cs, 1.0, R(5, 8)),     # grasp
             (cs, hc, 1.0, R(10, 14)),   # lift
             (hc, hp, 1.0, R(16, 22)),   # carry
-            (hp, pps, 1.0, R(10, 14)),  # lower
+            (hp, pps, 1.0, R(10, 14)),  # lower to platform
             (pps, pps, 0.0, R(5, 8)),   # release
-            (pps, ret, 0.0, R(12, 16)), # retract
+            (pps, ret, 0.0, R(12, 16)), # retract to hover
         ]
 
         raw_pts = []
@@ -223,15 +225,15 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         joints_seq = np.zeros((128, 4), dtype=np.float32)
 
         for si, (pt, g) in enumerate(traj):
-            # cube position: on table -> follows EE -> on platform
+            # cube position: on desk -> follows EE -> on platform
             if si < grasp_start:
                 vis_cube = cube_pos.copy()
             elif si < release_step:
                 vis_cube = pt.copy()            # follows gripper
-                vis_cube[2] = max(pt[2] - 0.008, 0.012)
+                vis_cube[2] = max(pt[2] - 0.005, 0.010)
             else:
                 vis_cube = pps.copy()            # resting on platform
-                vis_cube[2] = plat_pos[2] + 0.010
+                vis_cube[2] = plat_pos[2] + 0.008
 
             image_seq[si] = renderer.render_scene(
                 target_cube_pos=vis_cube,

@@ -287,25 +287,61 @@ class SyntheticDeskRenderer:
         cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, cy_or_tcy := tcy + 7), tc_col, -1)
         cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, cy_or_tcy), (255, 255, 255), 2)
 
-        # 5. Dobot Magician Base at origin (0.08, 0.0)
-        bx, by = self.world_to_cam(0.08, 0.0)
+        # 5. Dobot Magician Base at origin (0.05, 0.0)
+        bx, by = self.world_to_cam(0.05, 0.0)
         # Base pedestal
         cv2.circle(img, (bx, by), 16, (40, 42, 50), -1)
         cv2.circle(img, (bx, by), 14, (75, 80, 95), -1)
         cv2.circle(img, (bx, by), 6, (140, 145, 160), -1)
 
-        # 6. Dobot Robotic Arm Linkage to End-Effector
+        # 6. Dobot Robotic Arm Linkage with level end-effector (Parallelogram mechanism)
+        # End-effector does not bend all the way down; stays level above desk
         ex, ey = self.world_to_cam(ee_pos[0], ee_pos[1])
-        # Arm shadow on desk
-        cv2.line(img, (bx + 3, by + 3), (ex + 3, ey + 3), (20, 22, 26), 5)
-        # Arm linkage
-        cv2.line(img, (bx, by), (ex, ey), (160, 165, 180), 4)
-        cv2.circle(img, (int((bx + ex) / 2), int((by + ey) / 2)), 4, (120, 125, 140), -1)
+        # Solve planar joints for elbow and wrist
+        try:
+            j1 = np.arctan2(ee_pos[1], ee_pos[0])
+            r_total = np.sqrt(ee_pos[0]**2 + ee_pos[1]**2)
+            r_t = r_total - 0.060  # L4 tool length
+            z_t = ee_pos[2]
+            D_sq = r_t**2 + z_t**2
+            D = np.sqrt(max(D_sq, 1e-8))
+            K = (D_sq + 0.135**2 - 0.147**2) / (2.0 * 0.135)
+            cos_val = np.clip(K / D, -1.0, 1.0)
+            phi = np.arctan2(r_t, z_t)
+            j2 = phi - np.arccos(cos_val)
+            theta = np.arctan2(0.135 * np.cos(j2) - z_t, r_t - 0.135 * np.sin(j2))
+            
+            # Elbow and wrist positions in meters
+            r_el = 0.135 * np.sin(j2)
+            el_x, el_y = r_el * np.cos(j1), r_el * np.sin(j1)
+            
+            r_wr = 0.135 * np.sin(j2) + 0.147 * np.cos(theta)
+            wr_x, wr_y = r_wr * np.cos(j1), r_wr * np.sin(j1)
+            
+            lx, ly = self.world_to_cam(el_x, el_y)
+            wx, wy = self.world_to_cam(wr_x, wr_y)
+        except Exception:
+            lx, ly = int((bx * 2 + ex) / 3), int((by * 2 + ey) / 3)
+            wx, wy = int((bx + ex * 2) / 3), int((by + ey * 2) / 3)
 
-        # 7. End-Effector & Gripper Jaw
+        # Arm shadow on desk
+        cv2.line(img, (bx + 2, by + 2), (lx + 2, ly + 2), (20, 22, 26), 4)
+        cv2.line(img, (lx + 2, ly + 2), (wx + 2, wy + 2), (20, 22, 26), 4)
+        cv2.line(img, (wx + 2, wy + 2), (ex + 2, ey + 2), (20, 22, 26), 4)
+
+        # Rear arm link
+        cv2.line(img, (bx, by), (lx, ly), (160, 165, 180), 5)
+        cv2.circle(img, (lx, ly), 5, (120, 125, 140), -1)
+        # Forearm link
+        cv2.line(img, (lx, ly), (wx, wy), (175, 180, 195), 4)
+        cv2.circle(img, (wx, wy), 4, (130, 135, 150), -1)
+        # Tool link (level end-effector extension)
+        cv2.line(img, (wx, wy), (ex, ey), (190, 195, 210), 3)
+
+        # 7. End-Effector Gripper Jaws
         grip_col = (255, 75, 75) if gripper_closed else (80, 200, 255)
-        cv2.circle(img, (ex, ey), 6, grip_col, -1)
-        cv2.circle(img, (ex, ey), 6, (255, 255, 255), 1)
+        cv2.circle(img, (ex, ey), 5, grip_col, -1)
+        cv2.circle(img, (ex, ey), 5, (255, 255, 255), 1)
 
         return img
 

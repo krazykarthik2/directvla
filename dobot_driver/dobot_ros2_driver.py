@@ -42,14 +42,14 @@ class DobotRealDriver(Node):
         self.is_mock = False
         self.lock = threading.Lock()
 
-        # Simulated joint state for mock fallback
+        # Simulated joint state for mock fallback (hover pose above desk)
         self.mock_j1 = 0.0
-        self.mock_j2 = 0.0
-        self.mock_j3 = 30.0
+        self.mock_j2 = 15.7
+        self.mock_j3 = 32.9
         self.mock_j4 = 0.0
-        self.mock_x = 200.0
+        self.mock_x = 220.0
         self.mock_y = 0.0
-        self.mock_z = 0.0
+        self.mock_z = 50.0
         self.mock_r = 0.0
         self.tool_active = False
 
@@ -238,8 +238,8 @@ class DobotRealDriver(Node):
                     if not self.is_mock and self.arm:
                         self.arm.home()
                     else:
-                        self.mock_j1, self.mock_j2, self.mock_j3, self.mock_j4 = 0.0, 0.0, 30.0, 0.0
-                        self.mock_x, self.mock_y, self.mock_z, self.mock_r = 200.0, 0.0, 0.0, 0.0
+                        self.mock_j1, self.mock_j2, self.mock_j3, self.mock_j4 = 0.0, 15.7, 32.9, 0.0
+                        self.mock_x, self.mock_y, self.mock_z, self.mock_r = 220.0, 0.0, 50.0, 0.0
             elif cmd == "move_to":
                 x = data.get("x", 200.0)
                 y = data.get("y", 0.0)

@@ -22,19 +22,19 @@ import clip
 # Supports 9-dim hybrid representation: [j1, j2, j3, j4, x, y, z, r, gripper]
 # or standard 4-dim cartesian: [x, y, z, gripper]
 ACTION_MEAN_9D = torch.tensor([
-    0.0000, 0.5000, -0.8000, 0.0000,  # j1, j2, j3, j4 in radians
-    0.2200, 0.0000, 0.0450, 0.0000,   # x, y, z, r in meters & radians
+    0.0000, 0.5500, 0.0500, 0.0000,   # j1, j2, j3, j4 in radians (~0°, 31.5°, 2.9°, 0°)
+    0.2200, 0.0000, 0.0350, 0.0000,   # x, y, z, r in meters & radians
     0.5000                            # gripper
 ], dtype=torch.float32)
 
 ACTION_STD_9D = torch.tensor([
-    0.4000, 0.3500, 0.4500, 0.4000,   # j1, j2, j3, j4
-    0.0450, 0.0900, 0.0400, 0.4000,   # x, y, z, r
+    0.3700, 0.2500, 0.3300, 0.3700,   # j1, j2, j3, j4 in radians
+    0.0450, 0.0800, 0.0300, 0.3700,   # x, y, z, r
     0.5000                            # gripper
 ], dtype=torch.float32)
 
-ACTION_MEAN = torch.tensor([0.2200, 0.0000, 0.0450, 0.5000], dtype=torch.float32)
-ACTION_STD  = torch.tensor([0.0450, 0.0900, 0.0400, 0.5000], dtype=torch.float32)
+ACTION_MEAN = torch.tensor([0.2200, 0.0000, 0.0350, 0.5000], dtype=torch.float32)
+ACTION_STD  = torch.tensor([0.0450, 0.0800, 0.0300, 0.5000], dtype=torch.float32)
 
 
 class PretrainedVLMEncoder(nn.Module):

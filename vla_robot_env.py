@@ -48,29 +48,40 @@ class DobotKinematics:
         self.L4 = 0.060    # Tool end-effector offset (m)
 
     def forward(self, j1, j2, j3, j4):
-        """Joint angles in radians -> [x, y, z, yaw] in meters."""
-        r = self.L2 * np.cos(j2) + self.L3 * np.cos(j2 + j3) + self.L4
+        """
+        Joint angles in radians -> [x, y, z, yaw] in meters.
+        j1: base yaw (Z axis)
+        j2: rear arm pitch (Y axis)
+        j3: forearm pitch relative to rear arm (Y axis)
+        j4: end-effector roll/yaw offset
+        The parallelogram link keeps the end-effector base level (net pitch = 0).
+        """
+        r = self.L2 * np.sin(j2) + self.L3 * np.cos(j2 + j3) + self.L4
         x = r * np.cos(j1)
         y = r * np.sin(j1)
-        z = self.L1 + self.L2 * np.sin(j2) + self.L3 * np.sin(j2 + j3)
+        z = self.L2 * np.cos(j2) - self.L3 * np.sin(j2 + j3)
         yaw = j1 + j4
         return np.array([x, y, z, yaw], dtype=np.float32)
 
     def inverse(self, x, y, z, yaw=0.0):
-        """[x, y, z, yaw] in meters -> [j1, j2, j3, j4] in radians."""
+        """
+        [x, y, z, yaw] in meters -> [j1, j2, j3, j4] in radians.
+        Analytical closed-form inverse kinematics strictly obeying Dobot limits.
+        """
         j1 = np.arctan2(y, x)
         r_total = np.sqrt(x**2 + y**2)
-        r = r_total - self.L4
-        dz = z - self.L1
+        r_t = r_total - self.L4
+        z_t = z
 
-        D_sq = r**2 + dz**2
-        cos_j3 = (D_sq - self.L2**2 - self.L3**2) / (2.0 * self.L2 * self.L3)
-        cos_j3 = np.clip(cos_j3, -1.0, 1.0)
-        j3 = -np.arccos(cos_j3)
+        D_sq = r_t**2 + z_t**2
+        D = np.sqrt(np.maximum(D_sq, 1e-8))
+        K = (D_sq + self.L2**2 - self.L3**2) / (2.0 * self.L2)
+        cos_val = np.clip(K / D, -1.0, 1.0)
+        phi = np.arctan2(r_t, z_t)
+        j2 = phi - np.arccos(cos_val)
 
-        alpha = np.arctan2(dz, r)
-        beta = np.arctan2(self.L3 * np.sin(-j3), self.L2 + self.L3 * np.cos(-j3))
-        j2 = alpha + beta
+        theta = np.arctan2(self.L2 * np.cos(j2) - z_t, r_t - self.L2 * np.sin(j2))
+        j3 = theta - j2
 
         j4 = yaw - j1
         return np.array([j1, j2, j3, j4], dtype=np.float32)
@@ -85,10 +96,11 @@ class DobotRealEnv:
       - step_delta(delta_5d): moves EE by incremental delta [dx, dy, dz, dyaw, gripper]
       - get_proprioception(): returns current 5D state [x, y, z, yaw, gripper] in meters
     """
-    # Safe metric workspace boundaries (in meters)
-    X_BOUNDS = (0.160, 0.320)
-    Y_BOUNDS = (-0.170, 0.170)
-    Z_BOUNDS = (-0.045, 0.150)
+    # Safe metric workspace boundaries (in meters) matching physical Dobot limits
+    # Desk level is at z ~= -0.015 to 0.000 m. Objects rest on top of desk.
+    X_BOUNDS = (0.170, 0.285)
+    Y_BOUNDS = (-0.160, 0.160)
+    Z_BOUNDS = (-0.020, 0.090)
     YAW_BOUNDS = (-np.pi / 2.0, np.pi / 2.0)
 
     def __init__(self, use_ros2=True, port=None, baudrate=115200):
@@ -96,10 +108,10 @@ class DobotRealEnv:
         self.lock = threading.Lock()
         
         # State:
-        # Cartesian: [ee_x, ee_y, ee_z, ee_yaw] in meters
-        self.ee_pos = np.array([0.20, 0.0, 0.12, 0.0], dtype=np.float32)
+        # Cartesian: [ee_x, ee_y, ee_z, ee_yaw] in meters (hover inspection pose above desk)
+        self.ee_pos = np.array([0.22, 0.0, 0.065, 0.0], dtype=np.float32)
         # Joint space: [j1, j2, j3, j4] in radians
-        init_j = self.kin.inverse(0.20, 0.0, 0.12, 0.0)
+        init_j = self.kin.inverse(0.22, 0.0, 0.065, 0.0)
         self.joint_pos = np.array(init_j, dtype=np.float32)
         self.gripper_closed = False
         self.hardware_connected = False
@@ -350,7 +362,7 @@ class DobotRealEnv:
 
     def reset(self):
         """Resets the robot to standard hover inspection pose."""
-        hover_pose = np.array([0.20, 0.0, 0.12, 0.0, 0.0], dtype=np.float32)
+        hover_pose = np.array([0.22, 0.0, 0.065, 0.0, 0.0], dtype=np.float32)
         return self.step_target(hover_pose, wait=False)
 
     def close(self):

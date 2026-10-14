@@ -178,16 +178,16 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         occupied_positions = []
         def get_non_overlapping_pos(min_dist=0.065):
             for _ in range(100):
-                angle = np.random.uniform(-0.70, 0.70)
-                dist = np.random.uniform(0.18, 0.28)
+                angle = np.random.uniform(-0.55, 0.55)
+                dist = np.random.uniform(0.19, 0.27)
                 pos = np.array([dist * np.cos(angle), dist * np.sin(angle), 0.012], dtype=np.float32)
                 if all(np.linalg.norm(pos[:2] - p[:2]) > min_dist for p in occupied_positions):
                     occupied_positions.append(pos)
                     return pos
-            return np.array([0.22, 0.10, 0.012], dtype=np.float32)
+            return np.array([0.22, 0.08, 0.012], dtype=np.float32)
 
         target_cube_pos = get_non_overlapping_pos()
-        target_plat_pos = get_non_overlapping_pos(min_dist=0.08)
+        target_plat_pos = get_non_overlapping_pos(min_dist=0.075)
         target_plat_pos[2] = 0.005
 
         # Distractor objects
@@ -199,24 +199,26 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         avail_plats = [c for c in plat_colors if c != p_col]
         distractor_plats = []
         if avail_plats:
-            dp = get_non_overlapping_pos(min_dist=0.08)
+            dp = get_non_overlapping_pos(min_dist=0.075)
             dp[2] = 0.005
             distractor_plats.append((avail_plats[0], dp))
 
         template = np.random.choice(prompt_templates)
         prompt_text = template.format(target=t_col, plat=p_col)
 
-        # 2. Plan 8-phase minimum-jerk trajectory
-        hover_z = 0.110
-        cube_surf_z = 0.024
-        plat_surf_z = 0.032
+        # 2. Plan 8-phase minimum-jerk trajectory obeying Dobot limits
+        # Objects sit on top of the desk (small cube ~20mm, top at ~0.015m)
+        # End-effector does not descend all the way to ground/desk, but grasps at top of cube
+        hz = 0.065
+        cube_surf_z = 0.015
+        plat_surf_z = 0.022
 
-        p_start = np.array([0.20, 0.0, hover_z], dtype=np.float32)
-        p_hover_cube = np.array([target_cube_pos[0], target_cube_pos[1], hover_z], dtype=np.float32)
+        p_start = np.array([0.22, 0.0, hz], dtype=np.float32)
+        p_hover_cube = np.array([target_cube_pos[0], target_cube_pos[1], hz], dtype=np.float32)
         p_cube_surf = np.array([target_cube_pos[0], target_cube_pos[1], cube_surf_z], dtype=np.float32)
-        p_hover_plat = np.array([target_plat_pos[0], target_plat_pos[1], hover_z], dtype=np.float32)
+        p_hover_plat = np.array([target_plat_pos[0], target_plat_pos[1], hover_z := hz], dtype=np.float32)
         p_plat_surf = np.array([target_plat_pos[0], target_plat_pos[1], plat_surf_z], dtype=np.float32)
-        p_retract = np.array([target_plat_pos[0], target_plat_pos[1], hover_z], dtype=np.float32)
+        p_retract = np.array([target_plat_pos[0], target_plat_pos[1], hz], dtype=np.float32)
 
         # Jitter step allocation for natural variations
         j1 = np.random.randint(14, 18)
@@ -230,13 +232,13 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
 
         stages = [
             (p_start, p_hover_cube, 0.0, j1),       # 1. Approach hover
-            (p_hover_cube, p_cube_surf, 0.0, j2),   # 2. Descend to cube
+            (p_hover_cube, p_cube_surf, 0.0, j2),   # 2. Descend to cube top
             (p_cube_surf, p_cube_surf, 1.0, j3),    # 3. Grasp
             (p_cube_surf, p_hover_cube, 1.0, j4),   # 4. Lift
             (p_hover_cube, p_hover_plat, 1.0, j5),  # 5. Transfer
-            (p_hover_plat, p_plat_surf, 1.0, j6),   # 6. Lower
+            (p_hover_plat, p_plat_surf, 1.0, j6),   # 6. Lower to platform
             (p_plat_surf, p_plat_surf, 0.0, j7),    # 7. Release
-            (p_plat_surf, p_retract, 0.0, j8),      # 8. Retract
+            (p_plat_surf, p_retract, 0.0, j8),      # 8. Retract to hover
         ]
 
         full_pts = []
