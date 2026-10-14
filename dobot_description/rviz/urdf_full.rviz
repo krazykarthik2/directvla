@@ -169,6 +169,18 @@ Visualization Manager:
                           {}
       Update Interval: 0
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: TrajectoryMarkers
+      Namespaces:
+        {desk: true, platform: true, cube: true, trajectory: true}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /dobot/trajectory_markers
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
