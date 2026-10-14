@@ -157,9 +157,30 @@ class Dobot3DDemoVisualizer(Node):
         else:
             vis_cube = np.array([self.plat_pos[0], self.plat_pos[1], self.plat_pos[2] + 0.008])
 
-        # 1. Target Red Cube (aligned directly inside gripper jaw contact point)
-        # Z_OFFSET = 0.088 aligns with gripper jaws at desk level
-        Z_OFFSET = 0.088
+        # Floor / Desk Surface: Z = 0.0 in magician_root_link
+        # Everything rests on the floor!
+        FLOOR_Z = 0.000
+
+        # 0. Desk / Floor Marker
+        m_desk = Marker()
+        m_desk.header.stamp = now
+        m_desk.header.frame_id = "magician_root_link"
+        m_desk.ns = "desk"
+        m_desk.id = 0
+        m_desk.type = Marker.CUBE
+        m_desk.action = Marker.ADD
+        m_desk.pose.position.x = 0.230
+        m_desk.pose.position.y = 0.000
+        m_desk.pose.position.z = FLOOR_Z - 0.005  # Surface exactly at Z = 0.0
+        m_desk.pose.orientation.w = 1.0
+        m_desk.scale.x = 0.350
+        m_desk.scale.y = 0.450
+        m_desk.scale.z = 0.010
+        m_desk.color = ColorRGBA(r=0.22, g=0.25, b=0.30, a=0.75)
+        ma.markers.append(m_desk)
+
+        # 1. Target Red Cube (resting on floor at Z=0.0, cube height 22mm -> center at Z=0.011)
+        cube_z = FLOOR_Z + 0.011 if self.step_idx < self.grasp_start else (vis_cube[2] + FLOOR_Z)
         m_cube = Marker()
         m_cube.header.stamp = now
         m_cube.header.frame_id = "magician_root_link"
@@ -169,7 +190,7 @@ class Dobot3DDemoVisualizer(Node):
         m_cube.action = Marker.ADD
         m_cube.pose.position.x = float(vis_cube[0])
         m_cube.pose.position.y = float(vis_cube[1])
-        m_cube.pose.position.z = float(vis_cube[2] + Z_OFFSET)
+        m_cube.pose.position.z = float(cube_z)
         m_cube.pose.orientation.w = 1.0
         m_cube.scale.x = 0.022
         m_cube.scale.y = 0.022
@@ -177,7 +198,7 @@ class Dobot3DDemoVisualizer(Node):
         m_cube.color = ColorRGBA(r=0.95, g=0.15, b=0.15, a=0.95)
         ma.markers.append(m_cube)
 
-        # 2. Target Green Drop Platform (resting on desk)
+        # 2. Target Green Drop Platform (resting flat on floor, plate thickness 6mm -> center at Z=0.003)
         m_plat = Marker()
         m_plat.header.stamp = now
         m_plat.header.frame_id = "magician_root_link"
@@ -187,15 +208,15 @@ class Dobot3DDemoVisualizer(Node):
         m_plat.action = Marker.ADD
         m_plat.pose.position.x = float(self.plat_pos[0])
         m_plat.pose.position.y = float(self.plat_pos[1])
-        m_plat.pose.position.z = float(self.plat_pos[2] + Z_OFFSET - 0.005)
+        m_plat.pose.position.z = float(FLOOR_Z + 0.003)
         m_plat.pose.orientation.w = 1.0
         m_plat.scale.x = 0.050
         m_plat.scale.y = 0.050
-        m_plat.scale.z = 0.008
+        m_plat.scale.z = 0.006
         m_plat.color = ColorRGBA(r=0.15, g=0.85, b=0.30, a=0.95)
         ma.markers.append(m_plat)
 
-        # 3. Distractor Cubes
+        # 3. Distractor Cubes (resting on floor)
         for idx, (c_name, c_pos) in enumerate(self.dist_cubes):
             m_dist = Marker()
             m_dist.header.stamp = now
@@ -206,7 +227,7 @@ class Dobot3DDemoVisualizer(Node):
             m_dist.action = Marker.ADD
             m_dist.pose.position.x = float(c_pos[0])
             m_dist.pose.position.y = float(c_pos[1])
-            m_dist.pose.position.z = float(c_pos[2] + Z_OFFSET)
+            m_dist.pose.position.z = float(FLOOR_Z + 0.010)
             m_dist.pose.orientation.w = 1.0
             m_dist.scale.x = 0.020
             m_dist.scale.y = 0.020
@@ -217,11 +238,11 @@ class Dobot3DDemoVisualizer(Node):
                 m_dist.color = ColorRGBA(r=0.95, g=0.85, b=0.15, a=0.9)
             ma.markers.append(m_dist)
 
-        # 4. Trajectory Path Trail (LINE_STRIP)
+        # 4. Trajectory Path Trail (LINE_STRIP directly on motion path above floor)
         p = Point()
         p.x = float(pt[0])
         p.y = float(pt[1])
-        p.z = float(pt[2] + Z_OFFSET)
+        p.z = float(pt[2] + FLOOR_Z)
         self.trail_points.append(p)
         if len(self.trail_points) > 128:
             self.trail_points.pop(0)
