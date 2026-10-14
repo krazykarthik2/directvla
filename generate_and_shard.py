@@ -44,79 +44,7 @@ def quintic(p_start, p_end, steps):
     return pts
 
 
-def import_saved_learnings(mgr, renderer, learnings_dir):
-    """Import real Dobot waypoint recordings from saved_learnings/*.json."""
-    json_files = sorted(glob.glob(os.path.join(learnings_dir, "*.json")))
-    print(f"[Phase1] Found {len(json_files)} real recording files in {learnings_dir}", flush=True)
 
-    imported = 0
-    for jf in json_files:
-        try:
-            with open(jf, "r") as f:
-                data = json.load(f)
-        except Exception:
-            continue
-        waypoints = data.get("waypoints", [])
-        if len(waypoints) < 2:
-            continue
-
-        raw_pts = []
-        for wp in waypoints:
-            x_m = float(wp.get("x", 200.0)) / 1000.0
-            y_m = float(wp.get("y", 0.0)) / 1000.0
-            z_m = float(wp.get("z", 0.0)) / 1000.0
-            r_rad = math.radians(float(wp.get("r", 0.0)))
-            tool_act = wp.get("tool_action", "stop")
-            grip = 1.0 if tool_act in ["on", "close", "grip"] else 0.0
-            raw_pts.append((np.array([x_m, y_m, z_m, r_rad], dtype=np.float32), grip))
-
-        # Interpolate between waypoints
-        full = []
-        segs = max(4, 128 // (len(raw_pts) - 1))
-        for i in range(len(raw_pts) - 1):
-            p0, g0 = raw_pts[i]
-            p1, g1 = raw_pts[i + 1]
-            for pt in quintic(p0, p1, segs):
-                full.append((pt, g1))
-
-        # Standardize to H=128
-        if len(full) < 128:
-            while len(full) < 128:
-                full.append(full[-1])
-        idx = np.linspace(0, len(full) - 1, 128).astype(int)
-        full = [full[k] for k in idx]
-
-        # Render intermediate camera frames (cube position approximated at mid-trajectory)
-        p_init = full[0][0]
-        p_mid = full[64][0]
-        p_final = full[-1][0]
-
-        image_seq = np.zeros((128, 224, 224, 3), dtype=np.uint8)
-        proprio_seq = np.zeros((128, 9), dtype=np.float32)
-        action_seq = np.zeros((128, 9), dtype=np.float32)
-
-        for si, (pt, g) in enumerate(full):
-            image_seq[si] = renderer.render_scene(
-                target_cube_pos=p_mid[:3] if g < 0.5 else pt[:3],
-                target_color="red",
-                platform_pos=p_final[:3],
-                plat_color="green",
-                ee_pos=pt[:3],
-                gripper_closed=bool(g > 0.5)
-            )
-            # Analytical kinematics for Dobot joints [j1, j2, j3, j4]
-            j = kin.inverse(pt[0], pt[1], pt[2], pt[3])
-            # 9D format: [j1, j2, j3, j4, x, y, z, r, gripper]
-            proprio_seq[si] = [j[0], j[1], j[2], j[3], pt[0], pt[1], pt[2], pt[3], g]
-            action_seq[si] = [j[0], j[1], j[2], j[3], pt[0], pt[1], pt[2], pt[3], g]
-
-        prompt = f"execute manipulation: {os.path.basename(jf).replace('.json', '')}"
-        mgr.add_demonstration(image_seq, proprio_seq, action_seq, prompt,
-                              metadata={"source": "real_hardware", "file": os.path.basename(jf)})
-        imported += 1
-
-    print(f"[Phase1] Imported {imported} real hardware trajectories.", flush=True)
-    return imported
 
 
 def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
@@ -351,17 +279,12 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Phase 1: Generate + Shard Demonstrations")
     parser.add_argument("--num_demos", type=int, default=100)
-    parser.add_argument("--import_real", action="store_true")
     parser.add_argument("--desk_tone", type=str, default="dark_mat", choices=["dark_mat", "wood"])
     parser.add_argument("--episodes_per_shard", type=int, default=50, help="Episodes per shard")
     args = parser.parse_args()
 
     mgr = WallclockDatasetManager(episodes_per_shard=args.episodes_per_shard)
     renderer = SyntheticDeskRenderer()
-
-    if args.import_real:
-        import_saved_learnings(mgr, renderer,
-                               os.path.join(_CUR_DIR, "saved_learnings"))
 
     if args.num_demos > 0:
         generate_demos(args.num_demos, mgr, renderer, args.desk_tone)

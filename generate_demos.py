@@ -53,92 +53,7 @@ def generate_quintic_trajectory(p_start, p_end, steps):
     return pts
 
 
-def import_real_saved_learnings(learnings_dir=os.path.join(_CUR_DIR, "saved_learnings"), mgr=None):
-    """
-    Imports real Dobot physical trajectories recorded in saved_learnings/*.json
-    and converts them into wallclock-sharded demonstrations.
-    """
-    if mgr is None:
-        mgr = WallclockDatasetManager()
 
-    renderer = SyntheticDeskRenderer()
-    json_files = sorted(glob.glob(os.path.join(learnings_dir, "*.json")))
-    print(f"[Importer] Found {len(json_files)} real-world recorded demo files in {learnings_dir}...", flush=True)
-
-    imported_count = 0
-    for jf in json_files:
-        try:
-            with open(jf, "r") as f:
-                data = json.load(f)
-        except Exception as e:
-            print(f"[Importer] Skipping invalid JSON {jf}: {e}", flush=True)
-            continue
-
-        waypoints = data.get("waypoints", [])
-        if len(waypoints) < 2:
-            continue
-
-        raw_pts = []
-        for wp in waypoints:
-            # Dobot recorded waypoints are in millimeters: x, y, z, r, tool_action
-            x_m = float(wp.get("x", 200.0)) / 1000.0
-            y_m = float(wp.get("y", 0.0)) / 1000.0
-            z_m = float(wp.get("z", 0.0)) / 1000.0
-            r_rad = math.radians(float(wp.get("r", 0.0)))
-            tool_act = wp.get("tool_action", "stop")
-            grip_val = 1.0 if tool_act in ["on", "close", "grip"] else 0.0
-            raw_pts.append((np.array([x_m, y_m, z_m, r_rad]), grip_val))
-
-        # Interpolate between recorded waypoints into continuous 128-step trajectory
-        full_trajectory = []
-        steps_per_segment = max(4, 128 // (len(raw_pts) - 1))
-
-        for i in range(len(raw_pts) - 1):
-            p0, g0 = raw_pts[i]
-            p1, g1 = raw_pts[i + 1]
-            interp = generate_quintic_trajectory(p0, p1, steps_per_segment)
-            for pt in interp:
-                full_trajectory.append((pt, g1))
-
-        if len(full_trajectory) < 128:
-            # Pad with final pose
-            last_pt, last_g = full_trajectory[-1]
-            while len(full_trajectory) < 128:
-                full_trajectory.append((last_pt.copy(), last_g))
-        elif len(full_trajectory) > 128:
-            idx = np.linspace(0, len(full_trajectory) - 1, 128).astype(int)
-            full_trajectory = [full_trajectory[k] for k in idx]
-
-        # Synthesize desk camera observation for the initial frame
-        p_init, g_init = full_trajectory[0]
-        # Target position from mid trajectory
-        p_target = full_trajectory[64][0]
-        img = renderer.render_scene(
-            target_cube_pos=p_target[:3],
-            target_color="red",
-            platform_pos=full_trajectory[-1][0][:3],
-            plat_color="green",
-            ee_pos=p_init[:3],
-            gripper_closed=bool(g_init > 0.5)
-        )
-
-        image_seq = np.tile(img[np.newaxis, ...], (128, 1, 1, 1))
-        proprio_seq = np.zeros((128, 5), dtype=np.float32)
-        action_seq = np.zeros((128, 4), dtype=np.float32)
-
-        for step_idx, (pt, g) in enumerate(full_trajectory):
-            proprio_seq[step_idx] = np.array([pt[0], pt[1], pt[2], pt[3], g], dtype=np.float32)
-            action_seq[step_idx] = np.array([pt[0], pt[1], pt[2], g], dtype=np.float32)
-
-        prompt_str = f"execute physical manipulation: {os.path.basename(jf).replace('.json', '')}"
-        mgr.add_demonstration(
-            image_seq, proprio_seq, action_seq, prompt_str,
-            metadata={"source": "real_hardware", "original_file": os.path.basename(jf)}
-        )
-        imported_count += 1
-
-    print(f"[Importer] Successfully imported {imported_count} real hardware trajectories into wallclock dataset.", flush=True)
-    return imported_count
 
 
 def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
@@ -341,17 +256,13 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Demonstration Generator and Importer for Dobot VLA")
+    parser = argparse.ArgumentParser(description="Demonstration Generator for Dobot VLA")
     parser.add_argument("--num_demos", type=int, default=100, help="Number of demonstrations to generate")
-    parser.add_argument("--import_real", action="store_true", help="Import real JSON waypoints from saved_learnings")
     parser.add_argument("--precompute_clip", action="store_true", help="Precompute CLIP features for all shards")
     parser.add_argument("--device", type=str, default="cpu", help="Device for CLIP feature caching (cpu or cuda)")
     args = parser.parse_args()
 
     mgr = WallclockDatasetManager()
-
-    if args.import_real:
-        import_real_saved_learnings(mgr=mgr)
 
     if args.num_demos > 0:
         generate_high_quality_demos(num_demos=args.num_demos, mgr=mgr)

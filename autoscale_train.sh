@@ -42,8 +42,6 @@ while [[ "$#" -gt 0 ]]; do
             CACHING_BATCH_SIZE="$2"; shift 2 ;;
         --deleteraw|--delete_raw)
             DELETE_RAW_FLAG="--delete_raw"; shift 1 ;;
-        --import_real)
-            EXTRA_ARGS+=("--import_real"); shift 1 ;;
         --device)
             EXTRA_ARGS+=("--device" "$2"); shift 2 ;;
         --lr)

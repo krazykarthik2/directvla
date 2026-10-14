@@ -35,7 +35,7 @@ def write_done_signal():
         f.write("done\n")
 
 
-def run_pipeline(num_demos, epochs, batch_size, lr, device, import_real,
+def run_pipeline(num_demos, epochs, batch_size, lr, device,
                  caching_batch_size=16, delete_raw=False):
     os.makedirs(SHARDS_DIR, exist_ok=True)
     cleanup_signal()
@@ -72,8 +72,6 @@ def run_pipeline(num_demos, epochs, batch_size, lr, device, import_real,
         py, os.path.join(_CUR_DIR, "generate_and_shard.py"),
         "--num_demos", str(num_demos),
     ]
-    if import_real:
-        phase1_cmd.append("--import_real")
 
     print(f"[Pipeline] Phase 1 generator started (pid will follow)", flush=True)
     p1_ret = subprocess.call(phase1_cmd, stdout=sys.stdout, stderr=sys.stderr)
@@ -137,8 +135,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1.5e-3)
     parser.add_argument("--device", type=str,
                         default="cuda" if "torch" in sys.modules and __import__("torch").cuda.is_available() else "cpu")
-    parser.add_argument("--import_real", action="store_true",
-                        help="Also import real recordings from saved_learnings/")
     parser.add_argument("--caching_batch_size", type=int, default=16,
                         help="Batch size for parallel CLIP embedding extraction")
     parser.add_argument("--delete_raw", action="store_true",
@@ -151,7 +147,6 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         lr=args.lr,
         device=args.device,
-        import_real=args.import_real,
         caching_batch_size=args.caching_batch_size,
         delete_raw=args.delete_raw,
     )
