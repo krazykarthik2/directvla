@@ -256,16 +256,36 @@ class WallclockShardedDataset(Dataset):
         self.use_clip_cache = use_clip_cache
         self.manifest_file = os.path.join(self.shards_dir, "shards_manifest.json")
 
+        # Refresh manifest
+        mgr = WallclockDatasetManager(self.shards_dir)
         if not os.path.exists(self.manifest_file):
-            # Auto-build manifest
-            mgr = WallclockDatasetManager(self.shards_dir)
-            mgr.update_manifest()
+            self.manifest = mgr.update_manifest()
+        else:
+            with open(self.manifest_file, "r") as f:
+                self.manifest = json.load(f)
 
-        with open(self.manifest_file, "r") as f:
-            self.manifest = json.load(f)
+        raw_shards = self.manifest["shards"]
+        if self.use_clip_cache:
+            # Strictly filter to shards that possess a valid CLIP cache on disk
+            valid_shards = []
+            running_offset = 0
+            for s in raw_shards:
+                c_path = s["path"].replace(".npz", "_clip_cache.pt")
+                if os.path.exists(c_path):
+                    s_copy = dict(s)
+                    s_copy["start_index"] = running_offset
+                    s_copy["end_index"] = running_offset + s["episodes"] - 1
+                    s_copy["has_clip_cache"] = True
+                    valid_shards.append(s_copy)
+                    running_offset += s["episodes"]
+            self.shards_info = valid_shards
+            self.total_episodes = running_offset
+        else:
+            self.shards_info = raw_shards
+            self.total_episodes = self.manifest["total_episodes"]
 
-        self.total_episodes = self.manifest["total_episodes"]
-        self.shards_info = self.manifest["shards"]
+        if len(self.shards_info) == 0:
+            raise RuntimeError(f"No valid {'cached' if use_clip_cache else ''} shards found in {self.shards_dir}")
 
         # Build index map for O(log S) or binary search lookup
         self.shard_offsets = [s["start_index"] for s in self.shards_info]
@@ -273,6 +293,7 @@ class WallclockShardedDataset(Dataset):
         # LRU Shard Cache
         self.max_cached_shards = max_cached_shards
         self.shard_cache = OrderedDict()
+        self._vlm_fallback = None
 
     def __len__(self):
         return self.total_episodes
@@ -369,11 +390,23 @@ class WallclockShardedDataset(Dataset):
         act_tensor = torch.from_numpy(raw_actions)
         norm_traj = (act_tensor - ACTION_MEAN_9D) / (ACTION_STD_9D + 1e-6)
 
-        if clip_cache is not None:
-            # Return precomputed CLIP embeddings: [49, 512] visual, [77, 512] language
-            vis_patches = clip_cache["cached_patches"][local_idx]
-            txt_feats = clip_cache["cached_text"][local_idx]
-            return vis_patches, txt_feats, proprio0, norm_traj
+        if self.use_clip_cache:
+            if clip_cache is not None:
+                # Return precomputed CLIP embeddings: [49, 512] visual, [77, 512] language
+                vis_patches = clip_cache["cached_patches"][local_idx]
+                txt_feats = clip_cache["cached_text"][local_idx]
+                return vis_patches, txt_feats, proprio0, norm_traj
+            else:
+                # Dynamic fallback extraction: never return raw image when use_clip_cache=True!
+                if self._vlm_fallback is None:
+                    self._vlm_fallback = PretrainedVLMEncoder(device="cpu")
+                raw_img = npz["images"][local_idx]
+                img_t = preprocess_image_for_clip(raw_img, device="cpu")
+                tok_t = clip.tokenize([prompt])
+                with torch.no_grad():
+                    p_patches, _ = self._vlm_fallback.encode_vision(img_t)
+                    p_text = self._vlm_fallback.encode_text(tok_t)
+                return p_patches[0].float().cpu(), p_text[0].float().cpu(), proprio0, norm_traj
         else:
             # Return raw image and prompt tokens for dynamic online encoder
             raw_img = npz["images"][local_idx]

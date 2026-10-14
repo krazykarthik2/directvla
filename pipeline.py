@@ -88,13 +88,31 @@ def run_pipeline(num_demos, epochs, batch_size, lr, device,
 
     # Wait for Phase 2 to drain
     try:
-        p2.wait(timeout=300)  # 5 min max for remaining CLIP extraction
+        p2.wait(timeout=1800)  # up to 30 min for large shard volumes
     except subprocess.TimeoutExpired:
-        print("[Pipeline] Phase 2 timed out. Terminating.", flush=True)
+        print("[Pipeline] Phase 2 watch mode timed out. Terminating watcher process...", flush=True)
         p2.terminate()
         p2.wait(timeout=10)
 
-    print("[Pipeline] Phase 1 + Phase 2 complete.\n", flush=True)
+    # Reconcile any remaining uncached shards synchronously
+    from extract_clip_embeddings import find_uncached_shards
+    leftovers = find_uncached_shards(SHARDS_DIR)
+    if leftovers:
+        print(f"[Pipeline] Finalizing {len(leftovers)} remaining uncached shards before Phase 3...", flush=True)
+        finalize_cmd = [
+            py, os.path.join(_CUR_DIR, "extract_clip_embeddings.py"),
+            "--shards_dir", SHARDS_DIR,
+            "--device", device,
+            "--caching_batch_size", str(caching_batch_size),
+        ]
+        if delete_raw:
+            finalize_cmd.append("--delete_raw")
+        subprocess.call(finalize_cmd, stdout=sys.stdout, stderr=sys.stderr)
+
+    from vla_dataset import WallclockDatasetManager
+    mgr = WallclockDatasetManager(SHARDS_DIR)
+    manifest = mgr.update_manifest()
+    print(f"[Pipeline] Phase 1 + Phase 2 complete. {manifest['total_shards']} shards ({manifest['total_episodes']} demos) fully indexed.\n", flush=True)
 
     # ─────────────────────────────────────────────────────────────
     #  PHASE 3  (training)
