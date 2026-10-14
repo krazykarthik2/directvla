@@ -157,7 +157,9 @@ class Dobot3DDemoVisualizer(Node):
         else:
             vis_cube = np.array([self.plat_pos[0], self.plat_pos[1], self.plat_pos[2] + 0.008])
 
-        # 1. Target Red Cube
+        # 1. Target Red Cube (aligned directly inside gripper jaw contact point)
+        # Z_OFFSET = 0.088 aligns with gripper jaws at desk level
+        Z_OFFSET = 0.088
         m_cube = Marker()
         m_cube.header.stamp = now
         m_cube.header.frame_id = "magician_root_link"
@@ -167,7 +169,7 @@ class Dobot3DDemoVisualizer(Node):
         m_cube.action = Marker.ADD
         m_cube.pose.position.x = float(vis_cube[0])
         m_cube.pose.position.y = float(vis_cube[1])
-        m_cube.pose.position.z = float(vis_cube[2] + 0.138)  # Relative to magician_root_link height
+        m_cube.pose.position.z = float(vis_cube[2] + Z_OFFSET)
         m_cube.pose.orientation.w = 1.0
         m_cube.scale.x = 0.022
         m_cube.scale.y = 0.022
@@ -175,7 +177,7 @@ class Dobot3DDemoVisualizer(Node):
         m_cube.color = ColorRGBA(r=0.95, g=0.15, b=0.15, a=0.95)
         ma.markers.append(m_cube)
 
-        # 2. Target Green Drop Platform
+        # 2. Target Green Drop Platform (resting on desk)
         m_plat = Marker()
         m_plat.header.stamp = now
         m_plat.header.frame_id = "magician_root_link"
@@ -185,7 +187,7 @@ class Dobot3DDemoVisualizer(Node):
         m_plat.action = Marker.ADD
         m_plat.pose.position.x = float(self.plat_pos[0])
         m_plat.pose.position.y = float(self.plat_pos[1])
-        m_plat.pose.position.z = float(self.plat_pos[2] + 0.138 - 0.005)
+        m_plat.pose.position.z = float(self.plat_pos[2] + Z_OFFSET - 0.005)
         m_plat.pose.orientation.w = 1.0
         m_plat.scale.x = 0.050
         m_plat.scale.y = 0.050
@@ -204,7 +206,7 @@ class Dobot3DDemoVisualizer(Node):
             m_dist.action = Marker.ADD
             m_dist.pose.position.x = float(c_pos[0])
             m_dist.pose.position.y = float(c_pos[1])
-            m_dist.pose.position.z = float(c_pos[2] + 0.138)
+            m_dist.pose.position.z = float(c_pos[2] + Z_OFFSET)
             m_dist.pose.orientation.w = 1.0
             m_dist.scale.x = 0.020
             m_dist.scale.y = 0.020
@@ -219,7 +221,7 @@ class Dobot3DDemoVisualizer(Node):
         p = Point()
         p.x = float(pt[0])
         p.y = float(pt[1])
-        p.z = float(pt[2] + 0.138)
+        p.z = float(pt[2] + Z_OFFSET)
         self.trail_points.append(p)
         if len(self.trail_points) > 128:
             self.trail_points.pop(0)
