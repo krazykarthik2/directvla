@@ -169,9 +169,9 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
         prompt = np.random.choice(templates).format(t=t_col, p=p_col)
 
         # --- plan 8-phase trajectory strictly obeying Dobot limits ---
-        # Objects sit on top of the desk (small cube ~20mm, top at ~0.015m)
-        # End-effector does not descend all the way to ground/desk, but grasps at top of cube
-        hz = 0.065; csz = 0.015; psz = 0.022
+        # Objects sit on top of the desk (small cube ~20mm, resting on floor at Z=0.0)
+        # Gripper descends down around the cube for grasp
+        hz = 0.045; csz = -0.012; psz = -0.005
         ps = np.array([0.22, 0.0, hz], dtype=np.float32)
         hc = np.array([cube_pos[0], cube_pos[1], hz])
         cs = np.array([cube_pos[0], cube_pos[1], csz])

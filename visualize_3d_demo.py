@@ -64,9 +64,9 @@ class Dobot3DDemoVisualizer(Node):
             ("yellow", np.array([0.19, -0.05, 0.012], dtype=np.float32))
         ]
 
-        hz = 0.065
-        csz = 0.015
-        psz = 0.022
+        hz = 0.045
+        csz = -0.012
+        psz = -0.005
 
         ps = np.array([0.22, 0.0, hz], dtype=np.float32)
         hc = np.array([self.cube_pos[0], self.cube_pos[1], hz])
@@ -150,12 +150,12 @@ class Dobot3DDemoVisualizer(Node):
 
         # Cube position tracking
         if self.step_idx < self.grasp_start:
-            vis_cube = self.cube_pos.copy()
+            vis_cube = np.array([self.cube_pos[0], self.cube_pos[1], 0.011])
         elif self.step_idx < self.release_step:
-            vis_cube = pt.copy()
-            vis_cube[2] = max(pt[2] - 0.005, 0.010)
+            # Gripper is grasping cube: cube follows gripper motion
+            vis_cube = np.array([pt[0], pt[1], pt[2] + 0.023])
         else:
-            vis_cube = np.array([self.plat_pos[0], self.plat_pos[1], self.plat_pos[2] + 0.008])
+            vis_cube = np.array([self.plat_pos[0], self.plat_pos[1], 0.006 + 0.011])
 
         # Floor / Desk Surface: Z = 0.0 in magician_root_link
         # Everything rests on the floor!
@@ -180,7 +180,6 @@ class Dobot3DDemoVisualizer(Node):
         ma.markers.append(m_desk)
 
         # 1. Target Red Cube (resting on floor at Z=0.0, cube height 22mm -> center at Z=0.011)
-        cube_z = FLOOR_Z + 0.011 if self.step_idx < self.grasp_start else (vis_cube[2] + FLOOR_Z)
         m_cube = Marker()
         m_cube.header.stamp = now
         m_cube.header.frame_id = "magician_root_link"
@@ -190,7 +189,7 @@ class Dobot3DDemoVisualizer(Node):
         m_cube.action = Marker.ADD
         m_cube.pose.position.x = float(vis_cube[0])
         m_cube.pose.position.y = float(vis_cube[1])
-        m_cube.pose.position.z = float(cube_z)
+        m_cube.pose.position.z = float(vis_cube[2])
         m_cube.pose.orientation.w = 1.0
         m_cube.scale.x = 0.022
         m_cube.scale.y = 0.022

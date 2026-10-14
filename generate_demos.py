@@ -207,11 +207,11 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         prompt_text = template.format(target=t_col, plat=p_col)
 
         # 2. Plan 8-phase minimum-jerk trajectory obeying Dobot limits
-        # Objects sit on top of the desk (small cube ~20mm, top at ~0.015m)
-        # End-effector does not descend all the way to ground/desk, but grasps at top of cube
-        hz = 0.065
-        cube_surf_z = 0.015
-        plat_surf_z = 0.022
+        # Objects sit on top of the desk (small cube ~20mm, resting on floor at Z=0.0)
+        # Gripper descends down around the cube for grasp
+        hz = 0.045
+        cube_surf_z = -0.012
+        plat_surf_z = -0.005
 
         p_start = np.array([0.22, 0.0, hz], dtype=np.float32)
         p_hover_cube = np.array([target_cube_pos[0], target_cube_pos[1], hz], dtype=np.float32)
