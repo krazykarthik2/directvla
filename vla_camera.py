@@ -253,19 +253,19 @@ class SyntheticDeskRenderer:
                 px, py = self.world_to_cam(p_xyz[0], p_xyz[1])
                 col = COLOR_PALETTE.get(p_col, (100, 100, 100))
                 # Shadow
-                cv2.rectangle(img, (px - 14, py - 14), (px + 14, py + 14), (20, 22, 28), -1)
-                # Platform plate
-                cv2.rectangle(img, (px - 12, py - 12), (px + 12, py + 12), col, -1)
-                cv2.rectangle(img, (px - 12, py - 12), (px + 12, py + 12), (200, 200, 200), 1)
+                cv2.rectangle(img, (px - 16, py - 16), (px + 16, py + 16), (18, 20, 25), -1)
+                # Platform plate (identical size and neutral edge border for ALL platforms)
+                cv2.rectangle(img, (px - 14, py - 14), (px + 14, py + 14), col, -1)
+                cv2.rectangle(img, (px - 14, py - 14), (px + 14, py + 14), (60, 65, 75), 1)
 
         # 2. Target Platform
         tpx, tpy = self.world_to_cam(platform_pos[0], platform_pos[1])
         t_col = COLOR_PALETTE.get(plat_color, (40, 210, 80))
         # Shadow
         cv2.rectangle(img, (tpx - 16, tpy - 16), (tpx + 16, tpy + 16), (18, 20, 25), -1)
-        # Platform plate
+        # Platform plate (identical size and neutral edge border for ALL platforms)
         cv2.rectangle(img, (tpx - 14, tpy - 14), (tpx + 14, tpy + 14), t_col, -1)
-        cv2.rectangle(img, (tpx - 14, tpy - 14), (tpx + 14, tpy + 14), (255, 255, 255), 2)
+        cv2.rectangle(img, (tpx - 14, tpy - 14), (tpx + 14, tpy + 14), (60, 65, 75), 1)
 
         # 3. Distractor Cubes
         if distractors_cubes:
@@ -273,19 +273,19 @@ class SyntheticDeskRenderer:
                 cx, cy = self.world_to_cam(c_xyz[0], c_xyz[1])
                 col = COLOR_PALETTE.get(c_col, (45, 120, 240))
                 # Shadow
-                cv2.rectangle(img, (cx - 7, cy - 7), (cx + 7, cy + 7), (20, 22, 28), -1)
-                # Cube body
-                cv2.rectangle(img, (cx - 6, cy - 6), (cx + 6, cy + 6), col, -1)
-                cv2.rectangle(img, (cx - 6, cy - 6), (cx + 6, cy + 6), (220, 220, 220), 1)
+                cv2.rectangle(img, (cx - 8, cy - 8), (cx + 8, cy + 8), (18, 20, 25), -1)
+                # Cube body (identical size and neutral edge border for ALL cubes)
+                cv2.rectangle(img, (cx - 7, cy - 7), (cx + 7, cy + 7), col, -1)
+                cv2.rectangle(img, (cx - 7, cy - 7), (cx + 7, cy + 7), (50, 55, 65), 1)
 
         # 4. Target Cube
         tcx, tcy = self.world_to_cam(target_cube_pos[0], target_cube_pos[1])
         tc_col = COLOR_PALETTE.get(target_color, (240, 45, 45))
         # Shadow
         cv2.rectangle(img, (tcx - 8, tcy - 8), (tcx + 8, tcy + 8), (18, 20, 25), -1)
-        # Cube body
-        cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, cy_or_tcy := tcy + 7), tc_col, -1)
-        cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, cy_or_tcy), (255, 255, 255), 2)
+        # Cube body (identical size and neutral edge border for ALL cubes)
+        cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, tcy + 7), tc_col, -1)
+        cv2.rectangle(img, (tcx - 7, tcy - 7), (tcx + 7, tcy + 7), (50, 55, 65), 1)
 
         # 5. Dobot Magician Base at origin (0.05, 0.0)
         bx, by = self.world_to_cam(0.05, 0.0)

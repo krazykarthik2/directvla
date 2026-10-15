@@ -28,20 +28,60 @@ from vla_robot_env import DobotRealEnv, DobotKinematics
 from vla_model import SmolVLAPolicy, ACTION_MEAN, ACTION_STD
 
 
+import re
+
 def parse_colors_from_prompt(prompt):
-    """Extracts target cube color and target platform color from instruction prompt."""
+    """
+    Extracts target object color and target destination/platform color from ANY natural language phrasing:
+      - 'pick up the blue cube and place on green platform'
+      - 'pick up the cube that is blue and place it on green platform'
+      - 'pick the blue one and move to green area'
+      - 'pick up pen that is blue and put on green'
+    """
     prompt_lower = prompt.lower()
     known_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
     target_cube_color = "red"
     target_plat_color = "green"
 
-    for col in known_colors:
-        if f"{col} cube" in prompt_lower or f"{col} block" in prompt_lower or f"{col} object" in prompt_lower or f"{col} pen" in prompt_lower or f"{col} item" in prompt_lower:
-            target_cube_color = col
+    # Split prompt into pick clause and place/drop clause if present
+    drop_delimiters = [
+        "place it on", "place on", "put it on", "put on",
+        "move it to", "move to", "transfer it to", "transfer to",
+        "drop it on", "drop on", "onto"
+    ]
+    pick_clause = prompt_lower
+    place_clause = ""
+    for d in drop_delimiters:
+        if d in prompt_lower:
+            parts = prompt_lower.split(d, 1)
+            pick_clause = parts[0]
+            place_clause = parts[1]
             break
 
+    # 1. Detect target object color from pick clause
+    cube_found = False
     for col in known_colors:
-        if col != target_cube_color and (f"{col} platform" in prompt_lower or f"{col} area" in prompt_lower or f"{col} target" in prompt_lower or f"{col} zone" in prompt_lower):
+        patterns = [
+            rf"\b{col}\b\s+(cube|block|object|pen|item|cylinder|box|one)",
+            rf"(cube|block|object|pen|item|one)\s+(that\s+is|which\s+is|is|in|of\s+color)\s+\b{col}\b",
+            rf"\b{col}\b"
+        ]
+        if any(re.search(pat, pick_clause) for pat in patterns):
+            target_cube_color = col
+            cube_found = True
+            break
+
+    # 2. Detect platform/destination color from place clause or remainder of prompt
+    search_zone = place_clause if place_clause else prompt_lower
+    for col in known_colors:
+        if col == target_cube_color and place_clause == "":
+            continue
+        patterns = [
+            rf"\b{col}\b\s+(platform|area|target|zone|drop|plate|box|square)",
+            rf"(platform|area|target|zone|plate)\s+(that\s+is|which\s+is|is|in|of\s+color)\s+\b{col}\b",
+            rf"\b(on|to|onto)\b.*\b{col}\b"
+        ]
+        if any(re.search(pat, search_zone) for pat in patterns):
             target_plat_color = col
             break
 
