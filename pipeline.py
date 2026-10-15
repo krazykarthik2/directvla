@@ -36,7 +36,8 @@ def write_done_signal():
 
 
 def run_pipeline(num_demos, epochs, batch_size, lr, device,
-                 caching_batch_size=16, delete_raw=False):
+                 d_model=256, num_layers=3, shard_size=50,
+                 caching_batch_size=64, delete_raw=False):
     os.makedirs(SHARDS_DIR, exist_ok=True)
     cleanup_signal()
 
@@ -71,6 +72,7 @@ def run_pipeline(num_demos, epochs, batch_size, lr, device,
     phase1_cmd = [
         py, os.path.join(_CUR_DIR, "generate_and_shard.py"),
         "--num_demos", str(num_demos),
+        "--shard_size", str(shard_size),
     ]
 
     print(f"[Pipeline] Phase 1 generator started (pid will follow)", flush=True)
@@ -126,6 +128,8 @@ def run_pipeline(num_demos, epochs, batch_size, lr, device,
         "--epochs", str(epochs),
         "--batch_size", str(batch_size),
         "--lr", str(lr),
+        "--d_model", str(d_model),
+        "--num_layers", str(num_layers),
         "--device", device,
         "--shards_dir", SHARDS_DIR,
     ]
@@ -148,12 +152,15 @@ def run_pipeline(num_demos, epochs, batch_size, lr, device,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full 3-Phase VLA Pipeline")
     parser.add_argument("--num_demos", type=int, default=100)
-    parser.add_argument("--epochs", type=int, default=60)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1.5e-3)
+    parser.add_argument("--d_model", type=int, default=256)
+    parser.add_argument("--num_layers", type=int, default=3)
+    parser.add_argument("--shard_size", type=int, default=50)
     parser.add_argument("--device", type=str,
                         default="cuda" if "torch" in sys.modules and __import__("torch").cuda.is_available() else "cpu")
-    parser.add_argument("--caching_batch_size", type=int, default=16,
+    parser.add_argument("--caching_batch_size", type=int, default=64,
                         help="Batch size for parallel CLIP embedding extraction")
     parser.add_argument("--delete_raw", action="store_true",
                         help="Delete raw images .npz after extracting CLIP embeddings to save space")
@@ -165,6 +172,9 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         lr=args.lr,
         device=args.device,
+        d_model=args.d_model,
+        num_layers=args.num_layers,
+        shard_size=args.shard_size,
         caching_batch_size=args.caching_batch_size,
         delete_raw=args.delete_raw,
     )
