@@ -183,10 +183,6 @@ class SmolVLABackbone(nn.Module):
             nn.Linear(vlm_dim, d_model),
             nn.LayerNorm(d_model)
         )
-        self.global_txt_proj = nn.Sequential(
-            nn.Linear(vlm_dim, d_model),
-            nn.LayerNorm(d_model)
-        )
 
         self.layers = nn.ModuleList([
             MultimodalCrossAttentionBlock(d_model=d_model, nhead=nhead, d_ff=d_model * 2)
@@ -200,12 +196,11 @@ class SmolVLABackbone(nn.Module):
 
         cur_txt = self.txt_proj(text_feats)                  # [B, 77, d_model] - ALL 77 TOKENS!
         cur_vis = self.vis_proj(vis_patches)                 # [B, 49, d_model]
-        global_txt = self.global_txt_proj(text_feats.mean(dim=1, keepdim=True)) # [B, 1, d_model]
 
         for layer in self.layers:
             cur_txt, cur_vis = layer(cur_txt, cur_vis)
 
-        return cur_txt, cur_vis, global_txt
+        return cur_txt, cur_vis
 
 
 class ContinuousSinusoidalTimeEmbedding(nn.Module):
@@ -295,14 +290,12 @@ class SmolVLAPolicy(nn.Module):
         cur_txt = self.backbone.txt_proj(text_feats)
         # Project 49 spatial visual patches -> [B, 49, d_model]
         cur_vis = self.backbone.vis_proj(vis_patches)
-        # Global sentence pooled token -> [B, 1, d_model]
-        global_txt = self.backbone.global_txt_proj(text_feats.mean(dim=1, keepdim=True))
 
         # Multimodal bidirectional cross-attention & visual-language gating
         for layer in self.backbone.layers:
             cur_txt, cur_vis = layer(cur_txt, cur_vis)
 
-        # Conditioning tokens: [proprio, time]
+        # Conditioning tokens: [proprio]
         if proprio is None:
             proprio = torch.zeros(B, self.proprio_dim, device=vis_patches.device)
         elif proprio.shape[-1] != self.proprio_dim:
@@ -315,8 +308,8 @@ class SmolVLAPolicy(nn.Module):
         t_emb = self.time_embed(t).unsqueeze(1)               # [B, 1, d_model] continuous sinusoidal time embedding
 
         # Multimodal Context (pure physical & perceptual grounding):
-        # 1 proprio + 1 global_lang + 77 text + 49 vis = 128 context tokens!
-        context = torch.cat([p_token, global_txt, cur_txt, cur_vis], dim=1)
+        # 1 proprio + 77 text + 49 vis = 127 context tokens!
+        context = torch.cat([p_token, cur_txt, cur_vis], dim=1)
 
         # Action Decoder stream: direct sinusoidal time embedding injection into noisy actions
         act_queries = self.action_in_proj(x_t) + self.pos_queries + t_emb
