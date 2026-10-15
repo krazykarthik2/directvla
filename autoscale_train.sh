@@ -44,9 +44,16 @@ else
     echo "[WARN] No NVIDIA GPU detected. Falling back to CPU."
 fi
 
+STREAM_MODE=false
+FRAME_INTERVAL=10
+
 # 2. Parse CLI arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
+        --stream|--zero_disk|--zerodisk)
+            STREAM_MODE=true; shift 1 ;;
+        --frame_interval)
+            FRAME_INTERVAL="$2"; shift 2 ;;
         --num_demos|-n)
             NUM_DEMOS="$2"; shift 2 ;;
         --epochs|-e)
@@ -103,24 +110,42 @@ fi
 echo "========================================================================"
 echo "   AUTOSCALE PIPELINE CONFIGURATION"
 echo "   Target Demonstrations : $NUM_DEMOS (7 colors equal mix, up to 20 distractors)"
-echo "   Policy Epochs         : $EPOCHS"
 echo "   Auto Scaled Batch Size: $BATCH_SIZE"
-echo "   CLIP Caching Batch    : $CACHING_BATCH_SIZE"
 echo "   Model Architecture    : d_model=$D_MODEL, layers=$NUM_LAYERS (127 context tokens)"
 echo "   Compute Device        : $DEVICE"
-echo "   Shards Storage Policy : $([ -n "$DELETE_RAW_FLAG" ] && echo "Auto-purge raw .npz to save disk" || echo "Retain raw images")"
+if [ "$STREAM_MODE" = true ]; then
+    echo "   Pipeline Mode         : ZERO-DISK STREAMING (Generate -> CLIP in RAM -> Train, No disk writes)"
+    echo "   CLIP Frame Sampling   : Every $FRAME_INTERVAL frames (0, 10, 20, ...)"
+else
+    echo "   Policy Epochs         : $EPOCHS"
+    echo "   CLIP Caching Batch    : $CACHING_BATCH_SIZE"
+    echo "   Shards Storage Policy : $([ -n "$DELETE_RAW_FLAG" ] && echo "Auto-purge raw .npz to save disk" || echo "Retain raw images")"
+fi
 echo "========================================================================"
 
-# Run full pipeline with automatic scaling
-python3 "$DIR/pipeline.py" \
-    --num_demos "$NUM_DEMOS" \
-    --epochs "$EPOCHS" \
-    --batch_size "$BATCH_SIZE" \
-    --caching_batch_size "$CACHING_BATCH_SIZE" \
-    --d_model "$D_MODEL" \
-    --num_layers "$NUM_LAYERS" \
-    --shard_size "$SHARD_SIZE" \
-    --lr "$LR" \
-    --device "$DEVICE" \
-    $DELETE_RAW_FLAG \
-    "${EXTRA_ARGS[@]}"
+if [ "$STREAM_MODE" = true ]; then
+    # Pure in-memory streaming: Zero disk writes, convert CLIP every 10 frames, train online
+    exec python3 "$DIR/stream_train_vla.py" \
+        --num_demos "$NUM_DEMOS" \
+        --batch_size "$BATCH_SIZE" \
+        --frame_interval "$FRAME_INTERVAL" \
+        --d_model "$D_MODEL" \
+        --num_layers "$NUM_LAYERS" \
+        --lr "$LR" \
+        --device "$DEVICE" \
+        "${EXTRA_ARGS[@]}"
+else
+    # Sharded pipeline with automatic scaling
+    exec python3 "$DIR/pipeline.py" \
+        --num_demos "$NUM_DEMOS" \
+        --epochs "$EPOCHS" \
+        --batch_size "$BATCH_SIZE" \
+        --caching_batch_size "$CACHING_BATCH_SIZE" \
+        --d_model "$D_MODEL" \
+        --num_layers "$NUM_LAYERS" \
+        --shard_size "$SHARD_SIZE" \
+        --lr "$LR" \
+        --device "$DEVICE" \
+        $DELETE_RAW_FLAG \
+        "${EXTRA_ARGS[@]}"
+fi
