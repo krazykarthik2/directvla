@@ -299,7 +299,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Phase 1: Generate + Shard Demonstrations")
     parser.add_argument("--num_demos", type=int, default=100)
     parser.add_argument("--desk_tone", type=str, default="dark_mat", choices=["dark_mat", "wood"])
-    parser.add_argument("--episodes_per_shard", type=int, default=50, help="Episodes per shard")
+    parser.add_argument("--episodes_per_shard", "--shard_size", dest="episodes_per_shard", type=int, default=50, help="Episodes per shard")
     args = parser.parse_args()
 
     mgr = WallclockDatasetManager(episodes_per_shard=args.episodes_per_shard)
