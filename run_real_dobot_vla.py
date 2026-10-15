@@ -28,74 +28,13 @@ from vla_robot_env import DobotRealEnv, DobotKinematics
 from vla_model import SmolVLAPolicy, ACTION_MEAN, ACTION_STD
 
 
-import re
-
-def parse_colors_from_prompt(prompt):
+def initialize_scene_objects(num_distractors=2):
     """
-    Extracts target object color and target destination/platform color from ANY natural language phrasing:
-      - 'pick up the blue cube and place on green platform'
-      - 'pick up the cube that is blue and place it on green platform'
-      - 'pick the blue one and move to green area'
-      - 'pick up pen that is blue and put on green'
+    Spawns physical desk objects (cubes and platforms) with non-overlapping positions.
+    Does NOT parse or inspect any language prompt.
     """
-    prompt_lower = prompt.lower()
-    known_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
-    target_cube_color = "red"
-    target_plat_color = "green"
-
-    # Split prompt into pick clause and place/drop clause if present
-    drop_delimiters = [
-        "place it on", "place on", "put it on", "put on",
-        "move it to", "move to", "transfer it to", "transfer to",
-        "drop it on", "drop on", "onto"
-    ]
-    pick_clause = prompt_lower
-    place_clause = ""
-    for d in drop_delimiters:
-        if d in prompt_lower:
-            parts = prompt_lower.split(d, 1)
-            pick_clause = parts[0]
-            place_clause = parts[1]
-            break
-
-    # 1. Detect target object color from pick clause
-    cube_found = False
-    for col in known_colors:
-        patterns = [
-            rf"\b{col}\b\s+(cube|block|object|pen|item|cylinder|box|one)",
-            rf"(cube|block|object|pen|item|one)\s+(that\s+is|which\s+is|is|in|of\s+color)\s+\b{col}\b",
-            rf"\b{col}\b"
-        ]
-        if any(re.search(pat, pick_clause) for pat in patterns):
-            target_cube_color = col
-            cube_found = True
-            break
-
-    # 2. Detect platform/destination color from place clause or remainder of prompt
-    search_zone = place_clause if place_clause else prompt_lower
-    for col in known_colors:
-        if col == target_cube_color and place_clause == "":
-            continue
-        patterns = [
-            rf"\b{col}\b\s+(platform|area|target|zone|drop|plate|box|square)",
-            rf"(platform|area|target|zone|plate)\s+(that\s+is|which\s+is|is|in|of\s+color)\s+\b{col}\b",
-            rf"\b(on|to|onto)\b.*\b{col}\b"
-        ]
-        if any(re.search(pat, search_zone) for pat in patterns):
-            target_plat_color = col
-            break
-
-    return target_cube_color, target_plat_color
-
-
-def initialize_scene_objects(prompt, num_distractors=2):
-    """
-    Initializes scene layout with target objects and distractor objects matching training distribution.
-    Guarantees non-overlapping positions on the desk.
-    """
-    target_cube_col, target_plat_col = parse_colors_from_prompt(prompt)
-    cube_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
-    plat_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+    cube_colors = ["red", "blue", "yellow", "green", "purple", "cyan", "orange"]
+    plat_colors = ["green", "cyan", "orange", "yellow", "purple", "blue", "red"]
 
     occupied = []
 
@@ -111,37 +50,23 @@ def initialize_scene_objects(prompt, num_distractors=2):
         occupied.append(p)
         return p
 
-    target_cube_pos = get_pos(default_pos=[0.22, 0.08, 0.012])
-    target_plat_pos = get_pos(min_dist=0.075, default_pos=[0.22, -0.10, 0.005])
-    target_plat_pos[2] = 0.005
+    total_cubes = 1 + num_distractors
+    selected_cube_colors = cube_colors[:total_cubes]
+    cubes = []
+    for c_col in selected_cube_colors:
+        cubes.append((c_col, get_pos()))
 
-    # Distractor cubes
-    avail_cubes = [c for c in cube_colors if c != target_cube_col]
-    np.random.shuffle(avail_cubes)
-    dist_cubes = []
-    for i in range(min(num_distractors, len(avail_cubes))):
-        c_col = avail_cubes[i]
-        c_pos = get_pos()
-        dist_cubes.append((c_col, c_pos))
-
-    # Distractor platforms
-    dist_plats = []
-    avail_plats = [c for c in plat_colors if c != target_plat_col and c != target_cube_col]
-    np.random.shuffle(avail_plats)
-    if num_distractors > 0 and avail_plats:
-        p_col = avail_plats[0]
-        dp_pos = get_pos(min_dist=0.075)
-        dp_pos[2] = 0.005
-        dist_plats.append((p_col, dp_pos))
+    selected_plat_colors = [c for c in plat_colors if c not in selected_cube_colors][:max(1, num_distractors)]
+    platforms = []
+    for p_col in selected_plat_colors:
+        pp = get_pos(min_dist=0.075)
+        pp[2] = 0.005
+        platforms.append((p_col, pp))
 
     return {
-        "target_cube_color": target_cube_col,
-        "target_cube_pos": target_cube_pos,
-        "target_plat_color": target_plat_col,
-        "target_plat_pos": target_plat_pos,
-        "distractors_cubes": dist_cubes,
-        "distractors_plats": dist_plats,
-        "is_grasped": False
+        "cubes": cubes,
+        "platforms": platforms,
+        "grasped_idx": None
     }
 
 
@@ -162,8 +87,7 @@ def run_real_dobot_vla(
     print("   - Desk Top-Angle Camera: live feed + workspace homography", flush=True)
     print("   - Backbone: Genuine OpenAI CLIP ViT-B/32 Multimodal Policy", flush=True)
     print(f"   - Target Hardware Execution Device: {device}", flush=True)
-    print(f"   - Initial Language Prompt: \"{instruction}\"", flush=True)
-    print(f"   - Scene Distractors: {num_distractors} cubes + platforms enabled in output run", flush=True)
+    print(f"   - Raw Language Prompt (Untouched): \"{instruction}\"", flush=True)
     print("=" * 72, flush=True)
 
     # 1. Initialize Robot Hardware & ROS 2 Environment
@@ -173,10 +97,12 @@ def run_real_dobot_vla(
     # 2. Initialize Desk Top-Angle Camera & Scene Layout
     cam = DeskTopCamera(device_index=camera_index)
     syn_renderer = None
-    scene = initialize_scene_objects(instruction, num_distractors=num_distractors)
+    scene = initialize_scene_objects(num_distractors=num_distractors)
     if not cam.is_connected:
-        print(f"[VLA Controller] Notice: Physical camera not detected. Using high-fidelity synthetic desk camera view.", flush=True)
-        print(f"[VLA Controller] Virtual Scene configured with target [{scene['target_cube_color']} cube -> {scene['target_plat_color']} plat] and {len(scene['distractors_cubes'])} distractor cubes, {len(scene['distractors_plats'])} distractor plat.", flush=True)
+        cube_list_str = ", ".join([c[0] for c in scene["cubes"]])
+        plat_list_str = ", ".join([p[0] for p in scene["platforms"]])
+        print(f"[VLA Controller] Notice: Physical camera not detected. Using synthetic desk camera view.", flush=True)
+        print(f"[VLA Controller] Desk objects: Cubes=[{cube_list_str}], Platforms=[{plat_list_str}]. Zero prompt parsing.", flush=True)
         syn_renderer = SyntheticDeskRenderer()
 
     # 3. Load Policy Checkpoint
@@ -204,7 +130,7 @@ def run_real_dobot_vla(
 
     policy.eval()
 
-    # 4. Tokenize Language Instruction
+    # 4. Tokenize Language Instruction (Directly fed to VLM, NO Python parsing)
     tokens = clip.tokenize([instruction]).to(device)
 
     # Control loop variables
@@ -238,26 +164,28 @@ def run_real_dobot_vla(
                 ee_xyz = proprio[4:7] if proprio_dim == 9 else proprio[:3]
                 ee_grip = proprio[8] if proprio_dim == 9 else proprio[4]
 
-                # Simulate physical grasp & transport of the target cube
-                dist_to_cube = np.linalg.norm(ee_xyz[:2] - scene["target_cube_pos"][:2])
-                if ee_grip > 0.5 and (dist_to_cube < 0.035 or scene["is_grasped"]):
-                    scene["is_grasped"] = True
-                    # Target cube follows gripper
-                    scene["target_cube_pos"] = np.array([ee_xyz[0], ee_xyz[1], max(0.012, ee_xyz[2] - 0.012)], dtype=np.float32)
-                elif ee_grip <= 0.5 and scene["is_grasped"]:
-                    scene["is_grasped"] = False
-                    # Release cube onto platform or desk surface
-                    scene["target_cube_pos"][2] = 0.012
+                # Pure physical grasp check: whichever cube the gripper closes on gets lifted
+                if ee_grip > 0.5:
+                    if scene["grasped_idx"] is None:
+                        for idx, (c_col, c_pos) in enumerate(scene["cubes"]):
+                            if np.linalg.norm(ee_xyz[:2] - c_pos[:2]) < 0.035:
+                                scene["grasped_idx"] = idx
+                                break
+                    if scene["grasped_idx"] is not None:
+                        c_col, _ = scene["cubes"][scene["grasped_idx"]]
+                        scene["cubes"][scene["grasped_idx"]] = (c_col, np.array([ee_xyz[0], ee_xyz[1], max(0.012, ee_xyz[2] - 0.012)], dtype=np.float32))
+                else:
+                    if scene["grasped_idx"] is not None:
+                        c_col, c_pos = scene["cubes"][scene["grasped_idx"]]
+                        c_pos[2] = 0.012
+                        scene["cubes"][scene["grasped_idx"]] = (c_col, c_pos)
+                        scene["grasped_idx"] = None
 
                 rectified_rgb = syn_renderer.render_scene(
-                    target_cube_pos=scene["target_cube_pos"],
-                    target_color=scene["target_cube_color"],
-                    platform_pos=scene["target_plat_pos"],
-                    plat_color=scene["target_plat_color"],
+                    cubes=scene["cubes"],
+                    platforms=scene["platforms"],
                     ee_pos=ee_xyz,
-                    gripper_closed=bool(ee_grip > 0.5),
-                    distractors_cubes=scene["distractors_cubes"],
-                    distractors_plats=scene["distractors_plats"]
+                    gripper_closed=bool(ee_grip > 0.5)
                 )
                 img_tensor = preprocess_image_for_clip(rectified_rgb, device=device)
                 vis_frame = cv2.cvtColor(rectified_rgb, cv2.COLOR_RGB2BGR)
@@ -334,8 +262,10 @@ def run_real_dobot_vla(
                 cv2.putText(hud, f"Prompt: {instruction[:45]}...", (10, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 220, 100), 1)
                 state_str = f"EE: [{proprio[0]:.2f}, {proprio[1]:.2f}, {proprio[2]:.2f}] | Grip: {'ON' if grip_val > 0.5 else 'OFF'} | Step: {traj_step}/128"
                 cv2.putText(hud, state_str, (10, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 220, 255), 1)
-                dist_str = f"Target: [{scene['target_cube_color']} cube -> {scene['target_plat_color']} plat] | Distractors: {len(scene['distractors_cubes'])} cubes, {len(scene['distractors_plats'])} plat"
-                cv2.putText(hud, dist_str, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (220, 180, 255), 1)
+                cubes_str = "/".join([c[0] for c in scene["cubes"]])
+                plats_str = "/".join([p[0] for p in scene["platforms"]])
+                objects_str = f"Desk: Cubes=[{cubes_str}] | Platforms=[{plats_str}]"
+                cv2.putText(hud, objects_str, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (220, 180, 255), 1)
                 hw_str = f"Hardware: {'CONNECTED' if env.hardware_connected else 'SIM BRIDGE'} | Exec: {'RUNNING' if auto_execute else 'PAUSED'}"
                 cv2.putText(hud, hw_str, (10, 67), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (120, 255, 150), 1)
 
@@ -350,8 +280,8 @@ def run_real_dobot_vla(
                     env.reset()
                     current_trajectory = None
                     traj_step = 0
-                    scene = initialize_scene_objects(instruction, num_distractors=num_distractors)
-                    print("[VLA Controller] Reset robot and re-initialized scene objects & distractors.", flush=True)
+                    scene = initialize_scene_objects(num_distractors=num_distractors)
+                    print("[VLA Controller] Reset robot and re-scattered desk objects.", flush=True)
             else:
                 time.sleep(0.02)
 
