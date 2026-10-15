@@ -312,13 +312,14 @@ class SmolVLAPolicy(nn.Module):
             else:
                 proprio = proprio[:, :self.proprio_dim]
         p_token = self.proprio_proj(proprio).unsqueeze(1)     # [B, 1, d_model]
-        t_token = self.time_embed(t).unsqueeze(1)             # [B, 1, d_model]
+        t_emb = self.time_embed(t).unsqueeze(1)               # [B, 1, d_model] continuous sinusoidal time embedding
 
-        # Full Multimodal Context: 1 proprio + 1 time + 1 global_lang + 77 text + 49 vis = 129 tokens!
-        context = torch.cat([p_token, t_token, global_txt, cur_txt, cur_vis], dim=1)
+        # Multimodal Context (pure physical & perceptual grounding):
+        # 1 proprio + 1 global_lang + 77 text + 49 vis = 128 context tokens!
+        context = torch.cat([p_token, global_txt, cur_txt, cur_vis], dim=1)
 
-        # Action Decoder stream
-        act_queries = self.action_in_proj(x_t) + self.pos_queries
+        # Action Decoder stream: direct sinusoidal time embedding injection into noisy actions
+        act_queries = self.action_in_proj(x_t) + self.pos_queries + t_emb
 
         for d_layer in self.dec_layers:
             sa_out, _ = d_layer["sa"](act_queries, act_queries, act_queries)
