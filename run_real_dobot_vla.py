@@ -86,7 +86,8 @@ def initialize_scene_objects(prompt, num_distractors=2):
 
     # Distractor platforms
     dist_plats = []
-    avail_plats = [c for c in plat_colors if c != target_plat_col]
+    avail_plats = [c for c in plat_colors if c != target_plat_col and c != target_cube_col]
+    np.random.shuffle(avail_plats)
     if num_distractors > 0 and avail_plats:
         p_col = avail_plats[0]
         dp_pos = get_pos(min_dist=0.075)
