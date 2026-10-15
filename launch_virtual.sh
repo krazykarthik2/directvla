@@ -16,6 +16,7 @@ export PYTHONPATH="$DIR:$PYTHONPATH"
 
 # Default prompt if none provided
 PROMPT="pick up the red cube and place it on the green platform"
+NUM_DISTRACTORS=2
 
 # Parse CLI arguments
 while [[ "$#" -gt 0 ]]; do
@@ -23,6 +24,7 @@ while [[ "$#" -gt 0 ]]; do
         --prompt|-p) PROMPT="$2"; shift ;;
         --checkpoint|-c) CHECKPOINT="$2"; shift ;;
         --steps|-s) STEPS="$2"; shift ;;
+        --distractors|--num_distractors|-d) NUM_DISTRACTORS="$2"; shift ;;
         --headless) HEADLESS="--headless" ;;
         *) EXTRA_ARGS+=("$1") ;;
     esac
@@ -106,5 +108,6 @@ python3 "$DIR/run_real_dobot_vla.py" \
     --checkpoint "$CHECKPOINT" \
     --camera_index -1 \
     --steps "$STEPS" \
+    --num_distractors "$NUM_DISTRACTORS" \
     $HEADLESS \
     "${EXTRA_ARGS[@]}"

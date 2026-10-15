@@ -63,6 +63,9 @@ class Dobot3DDemoVisualizer(Node):
             ("blue", np.array([0.25, -0.04, 0.012], dtype=np.float32)),
             ("yellow", np.array([0.19, -0.05, 0.012], dtype=np.float32))
         ]
+        self.dist_plats = [
+            ("cyan", np.array([0.18, 0.16, 0.005], dtype=np.float32))
+        ]
 
         hz = 0.045
         csz = -0.012
@@ -236,6 +239,28 @@ class Dobot3DDemoVisualizer(Node):
             else:
                 m_dist.color = ColorRGBA(r=0.95, g=0.85, b=0.15, a=0.9)
             ma.markers.append(m_dist)
+
+        # Distractor Platforms (resting on floor)
+        for idx, (p_name, p_pos) in enumerate(self.dist_plats):
+            m_dp = Marker()
+            m_dp.header.stamp = now
+            m_dp.header.frame_id = "magician_root_link"
+            m_dp.ns = "platform"
+            m_dp.id = 20 + idx
+            m_dp.type = Marker.CUBE
+            m_dp.action = Marker.ADD
+            m_dp.pose.position.x = float(p_pos[0])
+            m_dp.pose.position.y = float(p_pos[1])
+            m_dp.pose.position.z = float(FLOOR_Z + 0.003)
+            m_dp.pose.orientation.w = 1.0
+            m_dp.scale.x = 0.050
+            m_dp.scale.y = 0.050
+            m_dp.scale.z = 0.006
+            if p_name == "cyan":
+                m_dp.color = ColorRGBA(r=0.15, g=0.85, b=0.85, a=0.9)
+            else:
+                m_dp.color = ColorRGBA(r=0.95, g=0.55, b=0.15, a=0.9)
+            ma.markers.append(m_dp)
 
         # 4. Trajectory Path Trail (LINE_STRIP directly on motion path above floor)
         p = Point()

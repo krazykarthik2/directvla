@@ -28,6 +28,82 @@ from vla_robot_env import DobotRealEnv, DobotKinematics
 from vla_model import SmolVLAPolicy, ACTION_MEAN, ACTION_STD
 
 
+def parse_colors_from_prompt(prompt):
+    """Extracts target cube color and target platform color from instruction prompt."""
+    prompt_lower = prompt.lower()
+    known_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+    target_cube_color = "red"
+    target_plat_color = "green"
+
+    for col in known_colors:
+        if f"{col} cube" in prompt_lower or f"{col} block" in prompt_lower or f"{col} object" in prompt_lower or f"{col} pen" in prompt_lower or f"{col} item" in prompt_lower:
+            target_cube_color = col
+            break
+
+    for col in known_colors:
+        if col != target_cube_color and (f"{col} platform" in prompt_lower or f"{col} area" in prompt_lower or f"{col} target" in prompt_lower or f"{col} zone" in prompt_lower):
+            target_plat_color = col
+            break
+
+    return target_cube_color, target_plat_color
+
+
+def initialize_scene_objects(prompt, num_distractors=2):
+    """
+    Initializes scene layout with target objects and distractor objects matching training distribution.
+    Guarantees non-overlapping positions on the desk.
+    """
+    target_cube_col, target_plat_col = parse_colors_from_prompt(prompt)
+    cube_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+    plat_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+
+    occupied = []
+
+    def get_pos(min_dist=0.065, default_pos=None):
+        for _ in range(100):
+            a = np.random.uniform(-0.55, 0.55)
+            d = np.random.uniform(0.19, 0.27)
+            p = np.array([d * np.cos(a), d * np.sin(a), 0.012], dtype=np.float32)
+            if all(np.linalg.norm(p[:2] - o[:2]) > min_dist for o in occupied):
+                occupied.append(p)
+                return p
+        p = np.array(default_pos if default_pos is not None else [0.22, 0.08, 0.012], dtype=np.float32)
+        occupied.append(p)
+        return p
+
+    target_cube_pos = get_pos(default_pos=[0.22, 0.08, 0.012])
+    target_plat_pos = get_pos(min_dist=0.075, default_pos=[0.22, -0.10, 0.005])
+    target_plat_pos[2] = 0.005
+
+    # Distractor cubes
+    avail_cubes = [c for c in cube_colors if c != target_cube_col]
+    np.random.shuffle(avail_cubes)
+    dist_cubes = []
+    for i in range(min(num_distractors, len(avail_cubes))):
+        c_col = avail_cubes[i]
+        c_pos = get_pos()
+        dist_cubes.append((c_col, c_pos))
+
+    # Distractor platforms
+    dist_plats = []
+    avail_plats = [c for c in plat_colors if c != target_plat_col]
+    if num_distractors > 0 and avail_plats:
+        p_col = avail_plats[0]
+        dp_pos = get_pos(min_dist=0.075)
+        dp_pos[2] = 0.005
+        dist_plats.append((p_col, dp_pos))
+
+    return {
+        "target_cube_color": target_cube_col,
+        "target_cube_pos": target_cube_pos,
+        "target_plat_color": target_plat_col,
+        "target_plat_pos": target_plat_pos,
+        "distractors_cubes": dist_cubes,
+        "distractors_plats": dist_plats,
+        "is_grasped": False
+    }
+
+
 def run_real_dobot_vla(
     checkpoint_path=os.path.join(_CUR_DIR, "checkpoints", "dobot_vla_best.pth"),
     instruction="pick up the red cube and place it on the green platform",
@@ -36,7 +112,8 @@ def run_real_dobot_vla(
     port=None,
     device='cpu',
     sample_steps=12,
-    headless=False
+    headless=False,
+    num_distractors=2
 ):
     device = torch.device(device if (device != 'cuda' or torch.cuda.is_available()) else 'cpu')
     print("=" * 72, flush=True)
@@ -45,17 +122,20 @@ def run_real_dobot_vla(
     print("   - Backbone: Genuine OpenAI CLIP ViT-B/32 Multimodal Policy", flush=True)
     print(f"   - Target Hardware Execution Device: {device}", flush=True)
     print(f"   - Initial Language Prompt: \"{instruction}\"", flush=True)
+    print(f"   - Scene Distractors: {num_distractors} cubes + platforms enabled in output run", flush=True)
     print("=" * 72, flush=True)
 
     # 1. Initialize Robot Hardware & ROS 2 Environment
     env = DobotRealEnv(use_ros2=use_ros2, port=port)
     env.reset()
 
-    # 2. Initialize Desk Top-Angle Camera
+    # 2. Initialize Desk Top-Angle Camera & Scene Layout
     cam = DeskTopCamera(device_index=camera_index)
     syn_renderer = None
+    scene = initialize_scene_objects(instruction, num_distractors=num_distractors)
     if not cam.is_connected:
-        print("[VLA Controller] Notice: Physical camera not detected. Using high-fidelity synthetic desk camera view.", flush=True)
+        print(f"[VLA Controller] Notice: Physical camera not detected. Using high-fidelity synthetic desk camera view.", flush=True)
+        print(f"[VLA Controller] Virtual Scene configured with target [{scene['target_cube_color']} cube -> {scene['target_plat_color']} plat] and {len(scene['distractors_cubes'])} distractor cubes, {len(scene['distractors_plats'])} distractor plat.", flush=True)
         syn_renderer = SyntheticDeskRenderer()
 
     # 3. Load Policy Checkpoint
@@ -116,13 +196,27 @@ def run_real_dobot_vla(
                 # In 5D proprio: indices 0, 1, 2 are ee_x, ee_y, ee_z; index 4 is grip
                 ee_xyz = proprio[4:7] if proprio_dim == 9 else proprio[:3]
                 ee_grip = proprio[8] if proprio_dim == 9 else proprio[4]
+
+                # Simulate physical grasp & transport of the target cube
+                dist_to_cube = np.linalg.norm(ee_xyz[:2] - scene["target_cube_pos"][:2])
+                if ee_grip > 0.5 and (dist_to_cube < 0.035 or scene["is_grasped"]):
+                    scene["is_grasped"] = True
+                    # Target cube follows gripper
+                    scene["target_cube_pos"] = np.array([ee_xyz[0], ee_xyz[1], max(0.012, ee_xyz[2] - 0.012)], dtype=np.float32)
+                elif ee_grip <= 0.5 and scene["is_grasped"]:
+                    scene["is_grasped"] = False
+                    # Release cube onto platform or desk surface
+                    scene["target_cube_pos"][2] = 0.012
+
                 rectified_rgb = syn_renderer.render_scene(
-                    target_cube_pos=np.array([0.22, 0.08, 0.012]),
-                    target_color="red",
-                    platform_pos=np.array([0.22, -0.10, 0.005]),
-                    plat_color="green",
+                    target_cube_pos=scene["target_cube_pos"],
+                    target_color=scene["target_cube_color"],
+                    platform_pos=scene["target_plat_pos"],
+                    plat_color=scene["target_plat_color"],
                     ee_pos=ee_xyz,
-                    gripper_closed=bool(ee_grip > 0.5)
+                    gripper_closed=bool(ee_grip > 0.5),
+                    distractors_cubes=scene["distractors_cubes"],
+                    distractors_plats=scene["distractors_plats"]
                 )
                 img_tensor = preprocess_image_for_clip(rectified_rgb, device=device)
                 vis_frame = cv2.cvtColor(rectified_rgb, cv2.COLOR_RGB2BGR)
@@ -189,17 +283,20 @@ def run_real_dobot_vla(
                 # End-effector overlay
                 ex = int(240 + (proprio[1] / 0.18) * 190)
                 ey = int(420 - ((proprio[0] - 0.12) / 0.23) * 370)
-                grip_col = (0, 0, 255) if proprio[4] > 0.5 else (255, 180, 0)
+                grip_val = proprio[8] if proprio_dim == 9 else proprio[4]
+                grip_col = (0, 0, 255) if grip_val > 0.5 else (255, 180, 0)
                 cv2.circle(hud, (ex, ey), 8, grip_col, -1)
                 cv2.circle(hud, (ex, ey), 8, (255, 255, 255), 2)
 
                 # Information header
-                cv2.rectangle(hud, (0, 0), (480, 65), (25, 28, 35), -1)
-                cv2.putText(hud, f"Prompt: {instruction[:45]}...", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 220, 100), 1)
-                state_str = f"EE: [{proprio[0]:.2f}, {proprio[1]:.2f}, {proprio[2]:.2f}] | Grip: {'ON' if proprio[4]>0.5 else 'OFF'} | Step: {traj_step}/128"
-                cv2.putText(hud, state_str, (10, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (180, 220, 255), 1)
+                cv2.rectangle(hud, (0, 0), (480, 72), (25, 28, 35), -1)
+                cv2.putText(hud, f"Prompt: {instruction[:45]}...", (10, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 220, 100), 1)
+                state_str = f"EE: [{proprio[0]:.2f}, {proprio[1]:.2f}, {proprio[2]:.2f}] | Grip: {'ON' if grip_val > 0.5 else 'OFF'} | Step: {traj_step}/128"
+                cv2.putText(hud, state_str, (10, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 220, 255), 1)
+                dist_str = f"Target: [{scene['target_cube_color']} cube -> {scene['target_plat_color']} plat] | Distractors: {len(scene['distractors_cubes'])} cubes, {len(scene['distractors_plats'])} plat"
+                cv2.putText(hud, dist_str, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (220, 180, 255), 1)
                 hw_str = f"Hardware: {'CONNECTED' if env.hardware_connected else 'SIM BRIDGE'} | Exec: {'RUNNING' if auto_execute else 'PAUSED'}"
-                cv2.putText(hud, hw_str, (10, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (120, 255, 150), 1)
+                cv2.putText(hud, hw_str, (10, 67), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (120, 255, 150), 1)
 
                 cv2.imshow("Dobot Magician SmolVLA (Desk Top-Angle Camera)", hud)
                 key = cv2.waitKey(20) & 0xFF
@@ -212,7 +309,8 @@ def run_real_dobot_vla(
                     env.reset()
                     current_trajectory = None
                     traj_step = 0
-                    print("[VLA Controller] Reset robot to hover home pose.", flush=True)
+                    scene = initialize_scene_objects(instruction, num_distractors=num_distractors)
+                    print("[VLA Controller] Reset robot and re-initialized scene objects & distractors.", flush=True)
             else:
                 time.sleep(0.02)
 
@@ -236,6 +334,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--steps", type=int, default=12, help="Euler ODE sampling steps")
     parser.add_argument("--headless", action="store_true", help="Run without OpenCV GUI window")
+    parser.add_argument("--num_distractors", type=int, default=2, help="Number of distractor cubes/platforms in virtual desk scene")
     args = parser.parse_args()
 
     run_real_dobot_vla(
@@ -246,5 +345,6 @@ if __name__ == "__main__":
         port=args.port,
         device=args.device,
         sample_steps=args.steps,
-        headless=args.headless
+        headless=args.headless,
+        num_distractors=args.num_distractors
     )
