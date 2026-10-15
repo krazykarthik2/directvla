@@ -55,6 +55,7 @@ def safe_save_checkpoint(state_dict, filepath):
 
 
 def train_vla(epochs=100, batch_size=16, lr=1.5e-3, device='cpu', 
+              d_model=256, num_layers=3,
               shards_dir=os.path.join(_CUR_DIR, "data", "shards"),
               checkpoint_dir=os.path.join(_CUR_DIR, "checkpoints")):
     
@@ -84,7 +85,7 @@ def train_vla(epochs=100, batch_size=16, lr=1.5e-3, device='cpu',
     print(f">> Detected Trajectory Action Dim: {act_dim}D, Proprioception Dim: {prop_dim}D", flush=True)
 
     # 2. Instantiate Policy
-    model = SmolVLAPolicy(horizon=128, action_dim=act_dim, proprio_dim=prop_dim, d_model=128, num_layers=2, device=device).to(device)
+    model = SmolVLAPolicy(horizon=128, action_dim=act_dim, proprio_dim=prop_dim, d_model=d_model, num_layers=num_layers, device=device).to(device)
     model.train()
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -188,6 +189,8 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=60, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument("--lr", type=float, default=1.5e-3, help="Learning rate")
+    parser.add_argument("--d_model", type=int, default=256, help="Model hidden dimension")
+    parser.add_argument("--num_layers", type=int, default=3, help="Number of transformer layers")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--shards_dir", type=str, default=os.path.join(_CUR_DIR, "data", "shards"))
     parser.add_argument("--checkpoint_dir", type=str, default=os.path.join(_CUR_DIR, "checkpoints"))
@@ -198,6 +201,8 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         lr=args.lr,
         device=args.device,
+        d_model=args.d_model,
+        num_layers=args.num_layers,
         shards_dir=args.shards_dir,
         checkpoint_dir=args.checkpoint_dir
     )

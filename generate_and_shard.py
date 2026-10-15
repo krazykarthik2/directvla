@@ -52,14 +52,9 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
     Generate verified pick-and-place demos with intermediate camera renders.
     The cube physically follows the EE when grasped - every frame is accurate.
     """
-    cube_colors = ["red", "blue", "yellow", "purple"]
-    plat_colors = ["green", "cyan", "orange"]
-    templates = [
-        "pick up the {t} cube and place it on the {p} platform",
-        "grasp the {t} cube and move to {p} box",
-        "transfer {t} block onto {p} platform",
-        "pick {t} object and place on {p} target",
-    ]
+    all_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+    nouns = ["cube", "thing", "block", "item", "object", "piece", "one"]
+    dest_nouns = ["platform", "area", "zone", "target", "spot", "box", "plate", ""]
 
     kin = DobotKinematics()
     completed = 0
@@ -67,42 +62,47 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
     pbar = tqdm(total=num_demos, desc="[Phase1] Generating+Sharding")
 
     while completed < num_demos:
-        # --- randomize scene ---
-        t_col = str(np.random.choice(cube_colors))
-        p_col = str(np.random.choice(plat_colors))
+        # Equal color ratios across all 7 colors
+        t_col = str(np.random.choice(all_colors))
+        avail_p = [c for c in all_colors if c != t_col]
+        p_col = str(np.random.choice(avail_p))
         occupied = []
 
-        def rand_pos(min_dist=0.065):
-            for _ in range(100):
+        # High distractor scaling: supports clean (0) all the way up to dense clutter (20)
+        num_dist_cubes = int(np.random.choice([0, 1, 2, 4, 6, 8, 12, 16, 20], 
+                                              p=[0.05, 0.10, 0.15, 0.15, 0.15, 0.15, 0.10, 0.10, 0.05]))
+        min_d = 0.060 if num_dist_cubes <= 4 else (0.042 if num_dist_cubes <= 10 else 0.028)
+
+        def rand_pos(min_dist=0.060):
+            for _ in range(120):
                 a = np.random.uniform(-0.55, 0.55)
-                d = np.random.uniform(0.19, 0.27)
+                d = np.random.uniform(0.18, 0.28)
                 p = np.array([d * np.cos(a), d * np.sin(a), 0.012], dtype=np.float32)
                 if all(np.linalg.norm(p[:2] - o[:2]) > min_dist for o in occupied):
                     occupied.append(p)
                     return p
-            p = np.array([0.22, 0.08, 0.012], dtype=np.float32)
+            p = np.array([0.22 + np.random.uniform(-0.03, 0.03), 0.08 + np.random.uniform(-0.03, 0.03), 0.012], dtype=np.float32)
             occupied.append(p)
             return p
 
-        cube_pos = rand_pos()
-        plat_pos = rand_pos(0.075); plat_pos[2] = 0.005
+        cube_pos = rand_pos(min_d)
+        plat_pos = rand_pos(0.065); plat_pos[2] = 0.005
 
-        # Scene distractor variation:
-        # 25% clean (0 distractors), 30% 1 distractor, 45% 2 distractors
-        num_dist_cubes = np.random.choice([0, 1, 2], p=[0.25, 0.30, 0.45])
-        avail_cubes = [c for c in cube_colors if c != t_col]
-        np.random.shuffle(avail_cubes)
-        dist_cubes = [(avail_cubes[i], rand_pos()) for i in range(num_dist_cubes)]
+        # Distractor cubes (supports up to 20 with varied colors)
+        dist_cubes = []
+        for _ in range(num_dist_cubes):
+            c_col = str(np.random.choice(all_colors))
+            dist_cubes.append((c_col, rand_pos(min_d)))
 
+        # Distractor platforms
+        num_dist_plats = int(np.random.choice([0, 1, 2], p=[0.30, 0.50, 0.20]))
         dist_plats = []
-        if np.random.rand() < 0.6:  # 60% chance of a distractor platform
-            avail_p = [c for c in plat_colors if c != p_col]
-            if avail_p:
-                dp = rand_pos(0.075); dp[2] = 0.005
-                dist_plats.append((avail_p[0], dp))
+        for _ in range(num_dist_plats):
+            dp_c = str(np.random.choice([c for c in all_colors if c != p_col]))
+            dp = rand_pos(0.065); dp[2] = 0.005
+            dist_plats.append((dp_c, dp))
 
-        # Task type distribution:
-        # 60% Pick-and-Place, 20% Push/Nudge, 10% Reach/Hover, 10% Lift-and-Hold
+        # Task type distribution: 60% Pick-Place, 20% Push, 10% Reach, 10% Lift
         task_type = np.random.choice(["pick_place", "push", "reach", "lift"], p=[0.60, 0.20, 0.10, 0.10])
 
         hz = 0.045; csz = -0.012; psz = -0.005
@@ -115,8 +115,25 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
 
         R = np.random.randint
 
+        # Dynamic natural phrasing covering "thing", "item", "put on orange", "place on", etc.
+        n = str(np.random.choice(nouns))
+        dn = str(np.random.choice(dest_nouns))
+        dest_str = f"{p_col} {dn}".strip() if dn else p_col
+
         if task_type == "pick_place":
-            prompt = np.random.choice(templates).format(t=t_col, p=p_col)
+            patterns = [
+                f"pick up the {t_col} {n} and put it on {dest_str}",
+                f"pick up the {t_col} {n} and place it on the {dest_str}",
+                f"pick the {t_col} {n} and move to {dest_str}",
+                f"grab the {t_col} {n} and drop it on {dest_str}",
+                f"take the {t_col} {n} and put on {dest_str}",
+                f"lift the {t_col} {n} and set it down on {dest_str}",
+                f"transfer {t_col} {n} onto {dest_str}",
+                f"move the {t_col} {n} to {dest_str}",
+                f"pick {t_col} {n} and place on {dest_str}",
+                f"put the {t_col} {n} on {dest_str}",
+            ]
+            prompt = str(np.random.choice(patterns))
             stages = [
                 (ps, hc, 0.0, R(14, 18)),   # approach hover
                 (hc, cs, 0.0, R(10, 14)),   # descend to cube
@@ -128,12 +145,14 @@ def generate_demos(num_demos, mgr, renderer, desk_tone="dark_mat"):
                 (pps, ret, 0.0, R(12, 16)), # retract to hover
             ]
         elif task_type == "push":
-            push_templates = [
-                "push the {t} cube towards the {p} platform",
-                "nudge {t} block forward to {p} target",
-                "slide the {t} cube across the desk",
+            push_patterns = [
+                f"push the {t_col} {n} towards {dest_str}",
+                f"nudge {t_col} {n} forward to {dest_str}",
+                f"slide the {t_col} {n} to {dest_str}",
+                f"push {t_col} {n} into {dest_str}",
+                f"move {t_col} {n} toward {dest_str}",
             ]
-            prompt = np.random.choice(push_templates).format(t=t_col, p=p_col)
+            prompt = str(np.random.choice(push_patterns))
             # Push vector along direction from cube towards platform
             push_dir = (plat_pos[:2] - cube_pos[:2])
             norm = np.linalg.norm(push_dir)

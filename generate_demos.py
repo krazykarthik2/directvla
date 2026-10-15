@@ -69,15 +69,9 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
         mgr = WallclockDatasetManager()
 
     renderer = SyntheticDeskRenderer()
-    cube_colors = ["red", "blue", "yellow", "purple"]
-    plat_colors = ["green", "cyan", "orange"]
-
-    prompt_templates = [
-        "pick up the {target} cube and place it on the {plat} platform",
-        "grasp the {target} cube and move to {plat} box",
-        "transfer {target} block onto {plat} platform",
-        "pick {target} object and place on {plat} target"
-    ]
+    all_colors = ["red", "green", "blue", "yellow", "purple", "cyan", "orange"]
+    nouns = ["cube", "block", "thing", "item", "object", "one"]
+    dest_nouns = ["platform", "box", "area", "target", "square", "spot", ""]
 
     print(f"\n[Generator] Starting generation of {num_demos} verified high-quality demonstrations...", flush=True)
     pbar = tqdm(total=num_demos, desc="Generating Demos")
@@ -86,38 +80,44 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
     rejected = 0
 
     while completed < num_demos:
-        # 1. Randomize scene objects
-        t_col = str(np.random.choice(cube_colors))
-        p_col = str(np.random.choice(plat_colors))
+        # 1. Randomize scene objects across all 7 colors equally
+        t_col = str(np.random.choice(all_colors))
+        p_col = str(np.random.choice([c for c in all_colors if c != t_col]))
 
-        occupied_positions = []
-        def get_non_overlapping_pos(min_dist=0.065):
-            for _ in range(100):
-                angle = np.random.uniform(-0.55, 0.55)
-                dist = np.random.uniform(0.19, 0.27)
-                pos = np.array([dist * np.cos(angle), dist * np.sin(angle), 0.012], dtype=np.float32)
-                if all(np.linalg.norm(pos[:2] - p[:2]) > min_dist for p in occupied_positions):
-                    occupied_positions.append(pos)
-                    return pos
-            return np.array([0.22, 0.08, 0.012], dtype=np.float32)
+        occupied = []
+        # Support clean workspace up to dense clutter (20 distractors)
+        num_dist_cubes = int(np.random.choice([0, 1, 2, 4, 6, 8, 12, 16, 20], 
+                                              p=[0.05, 0.10, 0.15, 0.15, 0.15, 0.15, 0.10, 0.10, 0.05]))
+        min_d = 0.060 if num_dist_cubes <= 4 else (0.042 if num_dist_cubes <= 10 else 0.028)
 
-        target_cube_pos = get_non_overlapping_pos()
-        target_plat_pos = get_non_overlapping_pos(min_dist=0.075)
+        def rand_pos(min_dist=0.060):
+            for _ in range(120):
+                a = np.random.uniform(-0.55, 0.55)
+                d = np.random.uniform(0.18, 0.28)
+                p = np.array([d * np.cos(a), d * np.sin(a), 0.012], dtype=np.float32)
+                if all(np.linalg.norm(p[:2] - o[:2]) > min_dist for o in occupied):
+                    occupied.append(p)
+                    return p
+            p = np.array([0.22 + np.random.uniform(-0.03, 0.03), 0.08 + np.random.uniform(-0.03, 0.03), 0.012], dtype=np.float32)
+            occupied.append(p)
+            return p
+
+        target_cube_pos = rand_pos(min_d)
+        target_plat_pos = rand_pos(0.065)
         target_plat_pos[2] = 0.005
 
-        # Distractor variation: 25% clean (0 distractors), 30% 1 distractor, 45% 2 distractors
-        num_dist_cubes = np.random.choice([0, 1, 2], p=[0.25, 0.30, 0.45])
-        avail_cubes = [c for c in cube_colors if c != t_col]
-        np.random.shuffle(avail_cubes)
-        distractor_cubes = [(avail_cubes[i], get_non_overlapping_pos()) for i in range(num_dist_cubes)]
+        distractor_cubes = []
+        for _ in range(num_dist_cubes):
+            c_col = str(np.random.choice(all_colors))
+            distractor_cubes.append((c_col, rand_pos(min_d)))
 
+        num_dist_plats = int(np.random.choice([0, 1, 2], p=[0.30, 0.50, 0.20]))
         distractor_plats = []
-        if np.random.rand() < 0.6:
-            avail_plats = [c for c in plat_colors if c != p_col]
-            if avail_plats:
-                dp = get_non_overlapping_pos(min_dist=0.075)
-                dp[2] = 0.005
-                distractor_plats.append((avail_plats[0], dp))
+        for _ in range(num_dist_plats):
+            dp_c = str(np.random.choice([c for c in all_colors if c != p_col]))
+            dp = rand_pos(0.065)
+            dp[2] = 0.005
+            distractor_plats.append((dp_c, dp))
 
         # Task type distribution: 60% Pick-and-Place, 20% Push, 10% Reach, 10% Lift
         task_type = np.random.choice(["pick_place", "push", "reach", "lift"], p=[0.60, 0.20, 0.10, 0.10])
@@ -135,8 +135,24 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
 
         R = np.random.randint
 
+        n = str(np.random.choice(nouns))
+        dn = str(np.random.choice(dest_nouns))
+        dest_str = f"{p_col} {dn}".strip() if dn else p_col
+
         if task_type == "pick_place":
-            prompt_text = np.random.choice(prompt_templates).format(target=t_col, plat=p_col)
+            patterns = [
+                f"pick up the {t_col} {n} and put it on {dest_str}",
+                f"pick up the {t_col} {n} and place it on the {dest_str}",
+                f"pick the {t_col} {n} and move to {dest_str}",
+                f"grab the {t_col} {n} and drop it on {dest_str}",
+                f"take the {t_col} {n} and put on {dest_str}",
+                f"lift the {t_col} {n} and set it down on {dest_str}",
+                f"transfer {t_col} {n} onto {dest_str}",
+                f"move the {t_col} {n} to {dest_str}",
+                f"pick {t_col} {n} and place on {dest_str}",
+                f"put the {t_col} {n} on {dest_str}",
+            ]
+            prompt_text = str(np.random.choice(patterns))
             stages = [
                 (p_start, p_hover_cube, 0.0, R(14, 18)),       # 1. Approach hover
                 (p_hover_cube, p_cube_surf, 0.0, R(10, 14)),   # 2. Descend to cube top
@@ -149,11 +165,11 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
             ]
         elif task_type == "push":
             push_templates = [
-                "push the {t} cube towards the {p} platform",
-                "nudge {t} block forward to {p} target",
-                "slide the {t} cube across the desk",
+                f"push the {t_col} {n} towards the {dest_str}",
+                f"nudge {t_col} {n} forward to {dest_str}",
+                f"slide the {t_col} {n} across the desk",
             ]
-            prompt_text = np.random.choice(push_templates).format(t=t_col, p=p_col)
+            prompt_text = np.random.choice(push_templates)
             push_dir = (target_plat_pos[:2] - target_cube_pos[:2])
             norm = np.linalg.norm(push_dir)
             push_dir = push_dir / norm if norm > 1e-4 else np.array([1.0, 0.0])
@@ -172,11 +188,11 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
             ]
         elif task_type == "reach":
             reach_templates = [
-                "reach towards the {t} cube",
-                "move gripper above the {t} cube",
-                "hover over the {t} object",
+                f"reach towards the {t_col} {n}",
+                f"move gripper above the {t_col} {n}",
+                f"hover over the {t_col} {n}",
             ]
-            prompt_text = np.random.choice(reach_templates).format(t=t_col)
+            prompt_text = np.random.choice(reach_templates)
             p_reach_hover = np.array([target_cube_pos[0], target_cube_pos[1], hz + 0.010], dtype=np.float32)
             stages = [
                 (p_start, p_reach_hover, 0.0, R(20, 26)),
@@ -185,11 +201,11 @@ def generate_high_quality_demos(num_demos=100, mgr=None, desk_tone="dark_mat"):
             ]
         else: # "lift"
             lift_templates = [
-                "pick up the {t} cube and hold it",
-                "lift the {t} block into the air",
-                "elevate the {t} object above the desk",
+                f"pick up the {t_col} {n} and hold it",
+                f"lift the {t_col} {n} into the air",
+                f"elevate the {t_col} {n} above the desk",
             ]
-            prompt_text = np.random.choice(lift_templates).format(t=t_col)
+            prompt_text = np.random.choice(lift_templates)
             stages = [
                 (p_start, p_hover_cube, 0.0, R(14, 18)),
                 (p_hover_cube, p_cube_surf, 0.0, R(10, 14)),

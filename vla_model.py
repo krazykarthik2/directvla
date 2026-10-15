@@ -107,18 +107,29 @@ class PretrainedVLMEncoder(nn.Module):
 
 class MultimodalCrossAttentionBlock(nn.Module):
     """
-    Cross-attention fusion where language attends to spatial visual patches,
-    followed by joint multimodal self-attention and FFN.
+    Bidirectional Cross-Attention & Language-Gated Feature Fusion:
+      1. Spatial visual patches actively cross-attend to language tokens (language modulates vision)
+      2. Language tokens cross-attend to visual patches
+      3. Joint self-attention over the combined multimodal sequence
+      4. Feed-Forward Network with GELU
     """
-    def __init__(self, d_model=128, nhead=4, d_ff=256):
+    def __init__(self, d_model=256, nhead=8, d_ff=512):
         super().__init__()
-        self.norm_cross_txt = nn.LayerNorm(d_model)
-        self.norm_cross_vis = nn.LayerNorm(d_model)
-        self.cross_attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+        # Vision queries Language (Crucial for grounding colors, adjectives, objects)
+        self.norm_vis_q = nn.LayerNorm(d_model)
+        self.norm_txt_kv = nn.LayerNorm(d_model)
+        self.cross_attn_vis = nn.MultiheadAttention(d_model, nhead, batch_first=True)
 
+        # Language queries Vision
+        self.norm_txt_q = nn.LayerNorm(d_model)
+        self.norm_vis_kv = nn.LayerNorm(d_model)
+        self.cross_attn_txt = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+
+        # Joint self-attention
         self.norm_self = nn.LayerNorm(d_model)
         self.self_attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
 
+        # Feed-Forward Network
         self.norm_ffn = nn.LayerNorm(d_model)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, d_ff),
@@ -127,33 +138,39 @@ class MultimodalCrossAttentionBlock(nn.Module):
         )
 
     def forward(self, text_tokens, visual_patches):
-        # 1. Cross-attention: Language attends to visual patches
-        q = self.norm_cross_txt(text_tokens)
-        kv = self.norm_cross_vis(visual_patches)
-        cross_out, weights = self.cross_attn(q, kv, kv, need_weights=True)
-        text_tokens = text_tokens + cross_out
+        # 1. Vision actively cross-attends to Language
+        vq = self.norm_vis_q(visual_patches)
+        tkv = self.norm_txt_kv(text_tokens)
+        vis_cross, _ = self.cross_attn_vis(vq, tkv, tkv)
+        visual_patches = visual_patches + vis_cross
 
-        # 2. Joint multimodal self-attention
+        # 2. Language cross-attends to Vision
+        tq = self.norm_txt_q(text_tokens)
+        vkv = self.norm_vis_kv(visual_patches)
+        txt_cross, _ = self.cross_attn_txt(tq, vkv, vkv)
+        text_tokens = text_tokens + txt_cross
+
+        # 3. Joint self-attention over all tokens
         joint = torch.cat([text_tokens, visual_patches], dim=1)
         joint_norm = self.norm_self(joint)
         sa_out, _ = self.self_attn(joint_norm, joint_norm, joint_norm)
         joint = joint + sa_out
 
-        # 3. Feed-Forward Network
+        # 4. Feed-Forward Network
         joint = joint + self.ffn(self.norm_ffn(joint))
 
         T = text_tokens.size(1)
-        return joint[:, :T], joint[:, T:], weights
+        return joint[:, :T], joint[:, T:]
 
 
 class SmolVLABackbone(nn.Module):
     """
     Pretrained VLM Backbone:
     - Genuine pretrained OpenAI CLIP ViT-B/32 encoder (49 patches + 77 BPE tokens)
-    - Projections from 512 -> d_model (128)
+    - Full 77-token projection + 49 visual patch projection + Global sentence token
     - Multimodal Cross & Self-Attention Fusion layers
     """
-    def __init__(self, d_model=128, vlm_dim=512, nhead=4, num_layers=2, device='cpu'):
+    def __init__(self, d_model=256, vlm_dim=512, nhead=8, num_layers=3, device='cpu'):
         super().__init__()
         self.d_model = d_model
         self.vlm = PretrainedVLMEncoder(device=device)
@@ -163,6 +180,10 @@ class SmolVLABackbone(nn.Module):
             nn.LayerNorm(d_model)
         )
         self.txt_proj = nn.Sequential(
+            nn.Linear(vlm_dim, d_model),
+            nn.LayerNorm(d_model)
+        )
+        self.global_txt_proj = nn.Sequential(
             nn.Linear(vlm_dim, d_model),
             nn.LayerNorm(d_model)
         )
@@ -176,16 +197,15 @@ class SmolVLABackbone(nn.Module):
         with torch.no_grad():
             vis_patches, cls_emb = self.vlm.encode_vision(img)  # [B, 49, 512]
             text_feats = self.vlm.encode_text(text_ids)          # [B, 77, 512]
-            base_weights = torch.einsum('bld,bpd->blp', text_feats, vis_patches)
-            base_probs = F.softmax(base_weights * 5.0, dim=-1)
 
-        cur_txt = self.txt_proj(text_feats[:, :16])  # [B, 16, d_model]
-        cur_vis = self.vis_proj(vis_patches)         # [B, 49, d_model]
+        cur_txt = self.txt_proj(text_feats)                  # [B, 77, d_model] - ALL 77 TOKENS!
+        cur_vis = self.vis_proj(vis_patches)                 # [B, 49, d_model]
+        global_txt = self.global_txt_proj(text_feats.mean(dim=1, keepdim=True)) # [B, 1, d_model]
 
         for layer in self.layers:
-            cur_txt, cur_vis, _ = layer(cur_txt, cur_vis)
+            cur_txt, cur_vis = layer(cur_txt, cur_vis)
 
-        return cur_txt, cur_vis, base_probs
+        return cur_txt, cur_vis, global_txt
 
 
 class ContinuousSinusoidalTimeEmbedding(nn.Module):
@@ -205,20 +225,21 @@ class SmolVLAPolicy(nn.Module):
     """
     Production-grade SmolVLA Policy for Dobot Magician:
     - Backbone: Genuine Pretrained OpenAI CLIP ViT-B/32
-    - Proprioception & Continuous Diffusion Time Conditioning (supports 9D joint+Cartesian or 5D)
-    - Action Horizon H=128 Optimal Transport Flow-Matching Decoder (supports 9D or 4D)
+    - Full 77-Token Text Input + 49 Visual Spatial Patches + Global Sentence Token = 129 Context Tokens!
+    - Bidirectional Visual-Language Gating (forces vision to condition on color/object tokens)
+    - Action Horizon H=128 Optimal Transport Flow-Matching Decoder (9D)
     """
-    def __init__(self, horizon=128, action_dim=9, proprio_dim=9, d_model=128, num_layers=2, device='cpu'):
+    def __init__(self, horizon=128, action_dim=9, proprio_dim=9, d_model=256, num_layers=3, device='cpu'):
         super().__init__()
         self.horizon = horizon
         self.action_dim = action_dim
         self.proprio_dim = proprio_dim
         self.d_model = d_model
 
-        # 1. Real Pretrained VLM Backbone
-        self.backbone = SmolVLABackbone(d_model=d_model, nhead=4, num_layers=num_layers, device=device)
+        # 1. Real Pretrained VLM Backbone with full 77 token projections
+        self.backbone = SmolVLABackbone(d_model=d_model, nhead=8 if d_model % 8 == 0 else 4, num_layers=num_layers, device=device)
 
-        # 2. Proprioception State Projector (9D: [j1, j2, j3, j4, x, y, z, r, gripper] or 5D)
+        # 2. Proprioception State Projector (9D: [j1, j2, j3, j4, x, y, z, r, gripper])
         self.proprio_proj = nn.Sequential(
             nn.Linear(proprio_dim, d_model),
             nn.GELU(),
@@ -237,23 +258,21 @@ class SmolVLAPolicy(nn.Module):
         self.action_in_proj = nn.Linear(action_dim, d_model)
         self.pos_queries = nn.Parameter(torch.randn(1, horizon, d_model) * 0.02)
 
-        # 5. Decoder Layer 1
-        self.dec_sa1 = nn.MultiheadAttention(d_model, 4, batch_first=True)
-        self.dec_ca1 = nn.MultiheadAttention(d_model, 4, batch_first=True)
-        self.dec_n1 = nn.LayerNorm(d_model)
-        self.dec_n2 = nn.LayerNorm(d_model)
-        self.dec_n3 = nn.LayerNorm(d_model)
-        self.dec_ffn1 = nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
+        # 5. Decoder Transformer Layers with 8-head trajectory attention
+        nhead = 8 if d_model % 8 == 0 else 4
+        self.dec_layers = nn.ModuleList([
+            nn.ModuleDict({
+                "sa": nn.MultiheadAttention(d_model, nhead, batch_first=True),
+                "ca": nn.MultiheadAttention(d_model, nhead, batch_first=True),
+                "n1": nn.LayerNorm(d_model),
+                "n2": nn.LayerNorm(d_model),
+                "n3": nn.LayerNorm(d_model),
+                "ffn": nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
+            })
+            for _ in range(num_layers)
+        ])
 
-        # 6. Decoder Layer 2
-        self.dec_sa2 = nn.MultiheadAttention(d_model, 4, batch_first=True)
-        self.dec_ca2 = nn.MultiheadAttention(d_model, 4, batch_first=True)
-        self.dec_n4 = nn.LayerNorm(d_model)
-        self.dec_n5 = nn.LayerNorm(d_model)
-        self.dec_n6 = nn.LayerNorm(d_model)
-        self.dec_ffn2 = nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
-
-        # 7. Output Velocity Field Head
+        # 6. Output Velocity Field Head
         self.out_head = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, d_model),
@@ -267,18 +286,21 @@ class SmolVLAPolicy(nn.Module):
         x_t: [B, H, action_dim]
         t: [B] in [0, 1]
         vis_patches: [B, 49, 512]
-        text_feats: [B, 77, 512]
-        proprio: [B, 5]
+        text_feats: [B, 77, 512] - ALL 77 TOKENS!
+        proprio: [B, 9]
         """
         B = vis_patches.size(0)
 
-        # Project CLIP 512 -> d_model
-        cur_txt = self.backbone.txt_proj(text_feats[:, :16])  # [B, 16, d_model]
-        cur_vis = self.backbone.vis_proj(vis_patches)         # [B, 49, d_model]
+        # Project ALL 77 CLIP text tokens -> [B, 77, d_model]
+        cur_txt = self.backbone.txt_proj(text_feats)
+        # Project 49 spatial visual patches -> [B, 49, d_model]
+        cur_vis = self.backbone.vis_proj(vis_patches)
+        # Global sentence pooled token -> [B, 1, d_model]
+        global_txt = self.backbone.global_txt_proj(text_feats.mean(dim=1, keepdim=True))
 
-        # Multimodal fusion
+        # Multimodal bidirectional cross-attention & visual-language gating
         for layer in self.backbone.layers:
-            cur_txt, cur_vis, _ = layer(cur_txt, cur_vis)
+            cur_txt, cur_vis = layer(cur_txt, cur_vis)
 
         # Conditioning tokens: [proprio, time]
         if proprio is None:
@@ -292,25 +314,18 @@ class SmolVLAPolicy(nn.Module):
         p_token = self.proprio_proj(proprio).unsqueeze(1)     # [B, 1, d_model]
         t_token = self.time_embed(t).unsqueeze(1)             # [B, 1, d_model]
 
-        # Joint Multimodal Context: 1 + 1 + 16 + 49 = 67 tokens
-        context = torch.cat([p_token, t_token, cur_txt, cur_vis], dim=1)
+        # Full Multimodal Context: 1 proprio + 1 time + 1 global_lang + 77 text + 49 vis = 129 tokens!
+        context = torch.cat([p_token, t_token, global_txt, cur_txt, cur_vis], dim=1)
 
         # Action Decoder stream
         act_queries = self.action_in_proj(x_t) + self.pos_queries
 
-        # Layer 1
-        sa_out, _ = self.dec_sa1(act_queries, act_queries, act_queries)
-        act_queries = self.dec_n1(act_queries + sa_out)
-        ca_out, _ = self.dec_ca1(act_queries, context, context)
-        act_queries = self.dec_n2(act_queries + ca_out)
-        act_queries = self.dec_n3(act_queries + self.dec_ffn1(act_queries))
-
-        # Layer 2
-        sa_out2, _ = self.dec_sa2(act_queries, act_queries, act_queries)
-        act_queries = self.dec_n4(act_queries + sa_out2)
-        ca_out2, _ = self.dec_ca2(act_queries, context, context)
-        act_queries = self.dec_n5(act_queries + ca_out2)
-        act_queries = self.dec_n6(act_queries + self.dec_ffn2(act_queries))
+        for d_layer in self.dec_layers:
+            sa_out, _ = d_layer["sa"](act_queries, act_queries, act_queries)
+            act_queries = d_layer["n1"](act_queries + sa_out)
+            ca_out, _ = d_layer["ca"](act_queries, context, context)
+            act_queries = d_layer["n2"](act_queries + ca_out)
+            act_queries = d_layer["n3"](act_queries + d_layer["ffn"](act_queries))
 
         v_pred = self.out_head(act_queries)
         return v_pred
